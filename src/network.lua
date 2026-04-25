@@ -1,0 +1,750 @@
+-- Network mesh — primary path uses the portal's real multi-user layer
+-- via [[LOVEWEB_NET]] magic-prints (see src/net.lua) and the
+-- __loveweb__/net/* file snapshots. A deterministic simulated mesh is
+-- retained as a graceful fallback for desktop / pre-connect / signed-out
+-- play, so the panel is never empty.
+--
+-- The same public API is exposed regardless of mode, so shop.lua /
+-- game.lua / facility.lua never need to branch:
+--
+--   Network.new(facility_seed, playerStats)
+--   Network.update(state, dt, playerStats)
+--   Network.snapshots(state)            -> NetSnapshot[]
+--   Network.events(state, count)        -> NetTickerEvent[]
+--   Network.interact(state, target_id, kind, paid?)
+--   Network.tickPool(state, dt, playerZps) -> outflow, payout
+--   Network.collectPendingBonuses(state) -> total
+--   Network.notify(state, kind, payload) -> broadcast a game event
+
+local fmt        = require "src.format"
+local minersDb   = require "src.miners"
+local energyDb   = require "src.energy"
+local Net        = require "src.net"
+
+local M = {}
+
+-- ============================================================
+-- Naming / avatar (used by sim and as an avatar derivation for real peers)
+-- ============================================================
+
+local PREFIXES = {
+  "VOIDREACH", "ARCLIGHT", "SOLEMN", "WATTSPRING", "GLEAMHOUSE",
+  "DEEPSEAM", "FALLOW", "AURELION", "STARBOUND", "PALEHORIZON",
+  "BLACKBOX", "PRISMA", "RIVERHEART", "EMERALD-K", "AETHERFOLD",
+  "QUARTZ", "BRIGHTHALO", "ZEROTH", "FUNDAMENT", "VANTABLOCK",
+  "CRYO-DELTA", "STORMWAY", "HELIOMARK", "OBSIDIAN", "SENTINEL",
+}
+local SUFFIXES = {
+  "OPS", "WORKS", "DEEP", "LABS", "FOUNDRY", "CONSORTIUM", "REFINERY",
+  "FORGE", "INSTALLATION", "GRID", "ALIGNMENT", "STACK", "NODE", "VAULT",
+  "INC.", "CO.", "GROUP", "SYNDICATE",
+}
+local CODES = { "K", "Z", "X", "9", "K9", "ZX", "II", "III", "IV" }
+
+local function pickFromSeed(rng, list)
+  return list[1 + (rng:random(0, #list - 1))]
+end
+
+local function nameFromSeed(seed, idx)
+  local rng = love.math.newRandomGenerator(seed * 7919 + idx * 31)
+  local p = pickFromSeed(rng, PREFIXES)
+  local s = pickFromSeed(rng, SUFFIXES)
+  if rng:random(0, 100) < 70 then
+    return p .. " " .. s
+  end
+  return p .. "-" .. pickFromSeed(rng, CODES) .. " " .. s
+end
+
+local function pickAvatar(seedNum)
+  local rng = love.math.newRandomGenerator(seedNum)
+  local hue = rng:random(0, 360)
+  local h = hue / 60
+  local i = math.floor(h)
+  local f = h - i
+  local p = 0.3
+  local q = 0.3 + 0.6 * (1 - f)
+  local r, g, b
+  if i == 0 then r, g, b = 0.95, q, p
+  elseif i == 1 then r, g, b = 0.6 + 0.3 * (1 - f), 0.95, p
+  elseif i == 2 then r, g, b = p, 0.95, q
+  elseif i == 3 then r, g, b = p, 0.5 + 0.45 * (1 - f), 0.95
+  elseif i == 4 then r, g, b = q, p, 0.95
+  else r, g, b = 0.95, p, q end
+  return {
+    color = { r, g, b },
+    glyph_index = rng:random(0, 5),
+    frame_kind = rng:random(0, 3),
+  }
+end
+
+local function hashUserIdToInt(s)
+  -- Simple deterministic 32-bit hash for userId -> int seed
+  local h = 5381
+  for i = 1, #s do
+    h = (h * 33 + s:byte(i)) % 4294967296
+  end
+  return h
+end
+
+-- ============================================================
+-- Sim layer (fallback)
+-- ============================================================
+
+local PLAYER_COUNT_SIM = 14
+
+local function statusFromCycle(p, t)
+  local cycleLen = 6 * 60 + (p.cycleSeed % 360)
+  local x = ((t + p.cycleOffset) / cycleLen) % 1
+  if x < 0.60 then return "online"
+  elseif x < 0.85 then return "afk"
+  else return "offline" end
+end
+
+local function makeSimPlayer(seed, idx, t0)
+  local rng = love.math.newRandomGenerator(seed * 4093 + idx * 17 + 3)
+  return {
+    id           = string.format("ghost-%d-%d", seed % 0xFFFF, idx),
+    name         = nameFromSeed(seed, idx),
+    seed         = seed * 4093 + idx,
+    levelOffset  = rng:random(-25, 35) / 10,
+    growthRate   = 0.85 + rng:random(0, 60) / 100,
+    cycleOffset  = rng:random(0, 12 * 60),
+    cycleSeed    = rng:random(0, 1000),
+    avatar       = pickAvatar(seed * 4093 + idx + 11),
+    last_block_announced = -10,
+    last_built_announced = -10,
+    spawn_t      = t0,
+  }
+end
+
+local function levelFromZ(z)
+  if z <= 1 then return 0 end
+  return math.log(z) / math.log(10)
+end
+
+local function zFromLevel(L)
+  if L <= 0 then return 0 end
+  return math.pow(10, L)
+end
+
+local function simSnapshot(p, t, playerStats)
+  local pl = levelFromZ(math.max(1, playerStats.z_lifetime or 1))
+  local elapsed = math.max(0, t - p.spawn_t)
+  local levelDrift = (elapsed / 600) * (p.growthRate - 1) * 1.2
+  local level = pl + p.levelOffset + levelDrift
+  if level < 0 then level = 0 end
+  local lifetime = zFromLevel(level)
+  local rate = lifetime / 200 * (0.6 + (p.seed % 80) / 100)
+  local hashrate = rate * 110e12
+  local status = statusFromCycle(p, t)
+  local effectiveRate = rate
+  if status == "offline" then effectiveRate = 0
+  elseif status == "afk" then effectiveRate = rate * 0.4 end
+  return {
+    z_lifetime = lifetime,
+    z_per_sec  = effectiveRate,
+    hashrate   = hashrate,
+    status     = status,
+    level      = level,
+    avatar     = p.avatar,
+    name       = p.name,
+    id         = p.id,
+    sim        = true,
+  }
+end
+
+-- ============================================================
+-- Event ticker management
+-- ============================================================
+
+local function pushEvent(state, kind, text, color)
+  state.events = state.events or {}
+  table.insert(state.events, {
+    t     = state._t or 0,
+    kind  = kind,
+    text  = text,
+    color = color or { 0.85, 1, 0.92 },
+  })
+  while #state.events > 32 do table.remove(state.events, 1) end
+end
+
+local function maybeSimAnnounceBlock(state, p, snap)
+  if snap.status == "offline" then return end
+  if snap.z_per_sec <= 0 then return end
+  local rng = love.math.newRandomGenerator(p.seed + math.floor(state._t / 12))
+  if (state._t - p.last_block_announced) > (60 + (p.seed % 240)) and rng:random(0, 100) < 6 then
+    p.last_block_announced = state._t
+    local reward = math.max(40, snap.z_per_sec * 30)
+    pushEvent(state, "block",
+      string.format("⛏  %s found a block — +%s Z", p.name, fmt.zeptons(reward)),
+      { 1, 0.95, 0.55 })
+  end
+end
+
+local function maybeSimAnnounceBuild(state, p, snap)
+  if snap.status == "offline" then return end
+  local rng = love.math.newRandomGenerator(p.seed + math.floor(state._t / 19))
+  if (state._t - p.last_built_announced) > (90 + (p.seed % 240)) and rng:random(0, 100) < 4 then
+    p.last_built_announced = state._t
+    local level = snap.level
+    local choices
+    if level < 4 then
+      choices = { { kind = "miner", key = "asic_z1" }, { kind = "energy", key = "solar" }, { kind = "energy", key = "wind" } }
+    elseif level < 7 then
+      choices = { { kind = "miner", key = "gpu_cluster" }, { kind = "miner", key = "quantum_miner" }, { kind = "energy", key = "hydro" }, { kind = "energy", key = "geothermal" } }
+    elseif level < 10 then
+      choices = { { kind = "miner", key = "quantum_miner" }, { kind = "miner", key = "neural_forge" }, { kind = "energy", key = "fission" } }
+    else
+      choices = { { kind = "miner", key = "neural_forge" }, { kind = "miner", key = "hyperdrive_rig" }, { kind = "miner", key = "singularity_engine" }, { kind = "energy", key = "fusion" }, { kind = "energy", key = "antimatter" }, { kind = "energy", key = "zeropoint" } }
+    end
+    local pick = choices[1 + rng:random(0, #choices - 1)]
+    local def = (pick.kind == "miner") and minersDb.byKey[pick.key] or energyDb.byKey[pick.key]
+    if def then
+      pushEvent(state, "build",
+        string.format("▦  %s deployed a %s", p.name, def.name),
+        def.color)
+    end
+  end
+end
+
+-- ============================================================
+-- Public API: new
+-- ============================================================
+
+function M.new(facility_seed, playerStats)
+  local s = {
+    facility_seed = facility_seed,
+    -- Live mode: "real" if connected to portal room, "sim" otherwise.
+    mode = "sim",
+    -- Sim layer
+    sim_players = {},
+    -- Real layer mirrors
+    realPeers = {},     -- userId -> { id, name, avatar, lastUpdate, stats... }
+    -- Shared
+    events  = {},
+    pool_with = nil,
+    pool_started_at = 0,
+    interactions = {},
+    boostCount = 0,
+    -- Outgoing-broadcast cadence
+    _lastStatsBroadcast = -100,
+    _statsInterval = 8,
+    -- Connection plumbing
+    _bootstrapped = false,
+    _hasJoinedRoom = false,
+    _bootstrapAttemptedAt = 0,
+    -- Self identity
+    self_userId = nil,
+    self_handle = nil,
+    self_facility_name = nil,
+    -- Tick clock
+    _t = 0,
+    _lastTick = 0,
+  }
+  for i = 1, PLAYER_COUNT_SIM do
+    s.sim_players[i] = makeSimPlayer(facility_seed, i, 0)
+  end
+  return s
+end
+
+-- ============================================================
+-- Real-mode: incoming event handler
+-- ============================================================
+
+local function ensurePeer(state, evt)
+  if not evt.userId then return nil end
+  local p = state.realPeers[evt.userId]
+  if not p then
+    local seedNum = hashUserIdToInt(evt.userId)
+    p = {
+      id          = evt.userId,
+      handle      = evt.handle or "operator",
+      facility_name = evt.handle or nameFromSeed(seedNum, 0),
+      avatar      = pickAvatar(seedNum),
+      joinedAt    = state._t,
+      lastUpdate  = state._t,
+      z_per_sec   = 0,
+      hashrate    = 0,
+      z_lifetime  = 0,
+      online      = true,
+      level       = 0,
+    }
+    state.realPeers[evt.userId] = p
+  end
+  if evt.handle and evt.handle ~= "" then p.handle = evt.handle end
+  return p
+end
+
+local function applyRosterPresence(state)
+  -- Roster from net.lua tells us who is currently in the room.
+  local seen = {}
+  for _, m in ipairs(Net.members or {}) do
+    if m.userId and m.userId ~= (state.self_userId or "") then
+      local p = state.realPeers[m.userId]
+      if not p then
+        local seedNum = hashUserIdToInt(m.userId)
+        p = {
+          id          = m.userId,
+          handle      = m.handle or "operator",
+          facility_name = m.handle or nameFromSeed(seedNum, 0),
+          avatar      = pickAvatar(seedNum),
+          joinedAt    = m.joinedAt or state._t,
+          lastUpdate  = state._t,
+          z_per_sec   = 0,
+          hashrate    = 0,
+          z_lifetime  = 0,
+          online      = true,
+          level       = 0,
+        }
+        state.realPeers[m.userId] = p
+      end
+      p.online = true
+      p.lastSeen = m.lastSeen
+      seen[m.userId] = true
+    end
+  end
+  for uid, p in pairs(state.realPeers) do
+    if not seen[uid] then
+      p.online = false
+    end
+  end
+end
+
+local function onNetEvent(state, evt)
+  if not evt then return end
+  -- Reserved verbs from portal: "join", "leave", "state"
+  if evt.verb == "join" then
+    if evt.userId and evt.userId ~= (state.self_userId or "") then
+      local p = ensurePeer(state, evt)
+      pushEvent(state, "join",
+        string.format("◉  %s joined the mesh", p.facility_name),
+        { 0.55, 0.95, 0.75 })
+    end
+    return
+  end
+  if evt.verb == "leave" then
+    if evt.userId and state.realPeers[evt.userId] then
+      local p = state.realPeers[evt.userId]
+      p.online = false
+      pushEvent(state, "leave",
+        string.format("◌  %s went offline", p.facility_name),
+        { 0.55, 0.55, 0.65 })
+    end
+    return
+  end
+  if evt.verb == "state" then
+    -- Server-side state mutations — currently no-op (we don't lean on
+    -- shared state, only events).
+    return
+  end
+  -- Game-defined verbs follow.
+  local payload = evt.payload or {}
+  if evt.verb == "stats" then
+    local p = ensurePeer(state, evt)
+    if p then
+      if payload.facility_name then p.facility_name = payload.facility_name end
+      p.z_per_sec  = tonumber(payload.z_per_sec) or p.z_per_sec
+      p.hashrate   = tonumber(payload.hashrate)  or p.hashrate
+      p.z_lifetime = tonumber(payload.z_lifetime) or p.z_lifetime
+      p.level      = tonumber(payload.level) or levelFromZ(math.max(1, p.z_lifetime))
+      p.lastUpdate = state._t
+      p.online     = true
+    end
+  elseif evt.verb == "block" then
+    local who = (evt.handle or "operator")
+    if state.realPeers[evt.userId or ""] then
+      who = state.realPeers[evt.userId].facility_name
+    end
+    pushEvent(state, "block",
+      string.format("⛏  %s found a block — +%s Z", who, fmt.zeptons(tonumber(payload.reward) or 0)),
+      { 1, 0.95, 0.55 })
+  elseif evt.verb == "build" then
+    local who = (evt.handle or "operator")
+    if state.realPeers[evt.userId or ""] then
+      who = state.realPeers[evt.userId].facility_name
+    end
+    local kind = payload.kind
+    local key = payload.key
+    local def = (kind == "miner") and minersDb.byKey[key] or (kind == "energy") and energyDb.byKey[key] or nil
+    if def then
+      pushEvent(state, "build",
+        string.format("▦  %s deployed a %s", who, def.name),
+        def.color)
+    end
+  elseif evt.verb == "halving" then
+    local who = (evt.handle or "operator")
+    if state.realPeers[evt.userId or ""] then
+      who = state.realPeers[evt.userId].facility_name
+    end
+    pushEvent(state, "halving",
+      string.format("½  %s endured a halving event", who),
+      { 0.85, 0.65, 1 })
+  elseif evt.verb == "boost" then
+    -- Inbound boost. If addressed to me, schedule a thanks reply.
+    local target = payload.target or payload.to
+    local senderName = (evt.handle or "operator")
+    local senderPeer = state.realPeers[evt.userId or ""]
+    if senderPeer then senderName = senderPeer.facility_name end
+    if target and state.self_userId and target == state.self_userId then
+      table.insert(state.interactions, {
+        kind = "incoming_boost",
+        from_id = evt.userId,
+        from_name = senderName,
+        paid = tonumber(payload.paid) or 0,
+        respond_at = state._t + 30 + love.math.random() * 90,
+        responded = false,
+      })
+      pushEvent(state, "boost_in",
+        string.format("⇄  %s boosted YOU — +%s Z incoming", senderName, fmt.zeptons(tonumber(payload.paid) or 0)),
+        { 0.55, 0.85, 1 })
+    else
+      -- Cosmetic chatter
+      pushEvent(state, "boost",
+        string.format("⇄  %s boosted a peer (%s Z)", senderName, fmt.zeptons(tonumber(payload.paid) or 0)),
+        { 0.45, 0.70, 0.95 })
+    end
+  elseif evt.verb == "thanks" then
+    -- Inbound thanks. Credit bonus if addressed to me.
+    local target = payload.target or payload.to
+    if target and state.self_userId and target == state.self_userId then
+      local bonus = tonumber(payload.amount) or 0
+      table.insert(state.interactions, {
+        kind = "thanks_credit",
+        bonus = bonus,
+        bonus_unclaimed = true,
+      })
+      local senderName = evt.handle or "operator"
+      local senderPeer = state.realPeers[evt.userId or ""]
+      if senderPeer then senderName = senderPeer.facility_name end
+      pushEvent(state, "thanks",
+        string.format("✦  %s thanks you — +%s Z bonus", senderName, fmt.zeptons(bonus)),
+        { 1, 0.85, 0.45 })
+    end
+  elseif evt.verb == "pool_request" then
+    -- Inbound pool request. Auto-accept (cosmetic; the requester pays/earns
+    -- locally based on our broadcast stats).
+    local target = payload.target or payload.to
+    if target and state.self_userId and target == state.self_userId then
+      Net.send("pool_accept", { target = evt.userId })
+      local senderName = evt.handle or "operator"
+      local senderPeer = state.realPeers[evt.userId or ""]
+      if senderPeer then senderName = senderPeer.facility_name end
+      pushEvent(state, "pool_in",
+        string.format("⛓  %s synced to your pool", senderName),
+        { 0.55, 0.85, 0.95 })
+    end
+  elseif evt.verb == "pool_accept" then
+    -- No-op; we already credit locally based on their stats.
+  elseif evt.verb == "pool_leave" then
+    -- Cosmetic
+  end
+end
+
+-- ============================================================
+-- Bootstrapping the room (real mode)
+-- ============================================================
+
+local function attemptBootstrap(state)
+  if state._bootstrapped then return end
+  -- Wait until status appears (i.e., we're on the portal)
+  if Net._seenStatusAt == nil then
+    -- Even on first call, kick a list/create speculatively. On desktop the
+    -- magic-prints simply log; no harm done.
+  end
+  if state._bootstrapAttemptedAt > 0 and (state._t - state._bootstrapAttemptedAt) < 2.5 then
+    return
+  end
+  state._bootstrapAttemptedAt = state._t
+
+  -- If already in a room (status connected and room snapshot present), done.
+  if Net.connected() and Net.room and Net.room.id then
+    state._bootstrapped = true
+    state._hasJoinedRoom = true
+    return
+  end
+
+  -- Step 1: ask for the public room list (idempotent)
+  if not state._listed then
+    Net.list()
+    state._listed = true
+    return
+  end
+  -- Step 2: pick a target room from the result if available; otherwise create.
+  local lr = Net.lastResult
+  if lr and lr.rooms and #lr.rooms > 0 then
+    -- Choose the room with most online members under capacity, prefer ours.
+    local best
+    for _, r in ipairs(lr.rooms) do
+      if (r.onlineCount or r.memberCount or 0) < (r.capacity or 8) then
+        if not best or (r.onlineCount or 0) > (best.onlineCount or 0) then
+          best = r
+        end
+      end
+    end
+    if best and best.code then
+      Net.join(best.code)
+      state._joinAttempted = true
+      return
+    end
+  end
+  if not state._createAttempted then
+    Net.create("A-TEK Mesh")
+    state._createAttempted = true
+  end
+end
+
+-- ============================================================
+-- Update tick
+-- ============================================================
+
+function M.update(state, dt, playerStats)
+  state._t = (state._t or 0) + dt
+  -- Throttle deeper sim/poll to 4 Hz
+  if state._t - (state._lastTick or 0) < 0.25 then return end
+  state._lastTick = state._t
+
+  -- Remember our own facility name (so peers display it)
+  state.self_facility_name = playerStats.facility_name or state.self_facility_name
+
+  -- Poll the net layer regardless of mode (it's idempotent)
+  Net.poll(function (evt)
+    onNetEvent(state, evt)
+  end)
+  -- Self identity (best-effort) — pulled from any room/state hints we get
+  if Net.identity and Net.identity.userId then
+    state.self_userId = Net.identity.userId
+    state.self_handle = Net.identity.handle
+  end
+
+  -- Try to bootstrap a room
+  attemptBootstrap(state)
+
+  -- Mode flip: if we're in a room, prefer real peers
+  if Net.connected() and Net.room and Net.room.id then
+    state.mode = "real"
+  else
+    state.mode = "sim"
+  end
+
+  -- Apply roster (mark online/offline among realPeers)
+  applyRosterPresence(state)
+
+  -- Build snapshots
+  local totalRate, totalHash = 0, 0
+  state._snapshots = {}
+  if state.mode == "real" then
+    -- Real peers (excluding self)
+    for _, p in pairs(state.realPeers) do
+      local status
+      if p.online then
+        if (state._t - (p.lastUpdate or 0)) > 30 then
+          status = "afk"
+        else
+          status = "online"
+        end
+      else
+        status = "offline"
+      end
+      local effRate = p.z_per_sec
+      if status == "offline" then effRate = 0
+      elseif status == "afk" then effRate = (p.z_per_sec or 0) * 0.4 end
+      table.insert(state._snapshots, {
+        id         = p.id,
+        name       = p.facility_name,
+        avatar     = p.avatar,
+        z_per_sec  = effRate,
+        hashrate   = p.hashrate or 0,
+        z_lifetime = p.z_lifetime or 0,
+        status     = status,
+        level      = p.level or 0,
+        sim        = false,
+      })
+      totalRate = totalRate + effRate
+      totalHash = totalHash + (p.hashrate or 0)
+    end
+    -- If we're connected but the room is empty, top up with a few sim ghosts
+    -- so the panel doesn't feel barren.
+    if #state._snapshots == 0 then
+      for i = 1, math.min(6, #state.sim_players) do
+        local p = state.sim_players[i]
+        local snap = simSnapshot(p, state._t, playerStats)
+        table.insert(state._snapshots, snap)
+        totalRate = totalRate + snap.z_per_sec
+        totalHash = totalHash + snap.hashrate
+        maybeSimAnnounceBlock(state, p, snap)
+        maybeSimAnnounceBuild(state, p, snap)
+      end
+    end
+  else
+    -- Sim only
+    for i, p in ipairs(state.sim_players) do
+      local snap = simSnapshot(p, state._t, playerStats)
+      table.insert(state._snapshots, snap)
+      totalRate = totalRate + snap.z_per_sec
+      totalHash = totalHash + snap.hashrate
+      maybeSimAnnounceBlock(state, p, snap)
+      maybeSimAnnounceBuild(state, p, snap)
+    end
+  end
+  state.totalRate     = totalRate
+  state.totalHashRate = totalHash + (playerStats.hashrate or 0)
+
+  -- Periodic stats broadcast (only meaningful in real mode but harmless)
+  if state.mode == "real" then
+    if (state._t - state._lastStatsBroadcast) >= state._statsInterval then
+      state._lastStatsBroadcast = state._t
+      Net.send("stats", {
+        facility_name = playerStats.facility_name,
+        z_per_sec     = playerStats.z_per_sec or 0,
+        hashrate      = playerStats.hashrate or 0,
+        z_lifetime    = playerStats.z_lifetime or 0,
+        level         = levelFromZ(math.max(1, playerStats.z_lifetime or 1)),
+        block_height  = playerStats.block_height or 0,
+      })
+    end
+  end
+
+  -- Process pending interactions: outbound boosts → schedule local thanks
+  -- credit only if the partner is sim (real partner replies via the wire).
+  for _, it in ipairs(state.interactions) do
+    if it.kind == "outgoing_boost_sim" and not it.responded and state._t >= it.respond_at then
+      it.responded = true
+      it.bonus = it.paid * (1.2 + love.math.random() * 0.6)
+      it.bonus_unclaimed = true
+      pushEvent(state, "thanks",
+        string.format("✦  %s thanks you — +%s Z bonus", it.target_name or "operator", fmt.zeptons(it.bonus)),
+        { 1, 0.85, 0.45 })
+    end
+    if it.kind == "incoming_boost" and not it.responded and state._t >= it.respond_at then
+      it.responded = true
+      -- Send thanks to the sender across the wire
+      local bonus = (it.paid or 0) * (1.2 + love.math.random() * 0.6)
+      Net.send("thanks", { target = it.from_id, amount = bonus })
+    end
+  end
+
+  -- Occasional global flavor pulse
+  if love.math.random() < 0.005 then
+    pushEvent(state, "global",
+      string.format("◐  network hash rate  %s", fmt.hashRate(state.totalHashRate or 0)),
+      { 0.55, 0.85, 0.95 })
+  end
+end
+
+-- ============================================================
+-- Public accessors
+-- ============================================================
+
+function M.snapshots(state)
+  return state._snapshots or {}
+end
+
+function M.players(state)
+  if state.mode == "real" then
+    local out = {}
+    for _, p in pairs(state.realPeers) do table.insert(out, p) end
+    return out
+  end
+  return state.sim_players or {}
+end
+
+function M.events(state, count)
+  count = count or 8
+  local out = {}
+  local n = #state.events
+  for i = math.max(1, n - count + 1), n do
+    table.insert(out, state.events[i])
+  end
+  return out
+end
+
+function M.statusText(state)
+  if state.mode == "real" and Net.connected() then
+    if Net.room and Net.room.id then
+      return "ONLINE  ·  ROOM SYNCED"
+    end
+    return "CONNECTING"
+  end
+  return "SOLO MODE  ·  SIM MESH"
+end
+
+-- ============================================================
+-- Interactions
+-- ============================================================
+
+function M.interact(state, target_id, kind, paid)
+  if kind == "boost" then
+    state.boostCount = (state.boostCount or 0) + 1
+    if state.mode == "real" and not (target_id and target_id:find("ghost-") == 1) then
+      Net.send("boost", { target = target_id, paid = paid or 0 })
+    else
+      -- Sim ghost — schedule a local thanks
+      local snap
+      for _, sn in ipairs(state._snapshots or {}) do
+        if sn.id == target_id then snap = sn; break end
+      end
+      table.insert(state.interactions, {
+        kind = "outgoing_boost_sim",
+        target_id = target_id,
+        target_name = (snap and snap.name) or "operator",
+        paid = paid or 0,
+        respond_at = state._t + 30 + love.math.random() * 90,
+        responded = false,
+      })
+    end
+  elseif kind == "pool" then
+    state.pool_with = target_id
+    state.pool_started_at = state._t
+    if state.mode == "real" and not (target_id and target_id:find("ghost-") == 1) then
+      Net.send("pool_request", { target = target_id })
+    end
+  elseif kind == "leave_pool" then
+    if state.mode == "real" and state.pool_with and not (state.pool_with:find("ghost-") == 1) then
+      Net.send("pool_leave", { target = state.pool_with })
+    end
+    state.pool_with = nil
+  end
+end
+
+-- ============================================================
+-- Game-event broadcast helpers
+-- ============================================================
+
+function M.notify(state, kind, payload)
+  if state.mode ~= "real" then return end
+  Net.send(kind, payload or {})
+end
+
+-- ============================================================
+-- Pool ticking
+-- ============================================================
+
+function M.tickPool(state, dt, playerZps)
+  if not state.pool_with then return 0, 0 end
+  local snap
+  for _, sn in ipairs(state._snapshots or {}) do
+    if sn.id == state.pool_with then snap = sn; break end
+  end
+  if not snap then return 0, 0 end
+  local outflow = (playerZps or 0) * 0.05 * dt
+  state._poolAccum = (state._poolAccum or 0) + dt
+  local payout = 0
+  if state._poolAccum >= 30 then
+    state._poolAccum = state._poolAccum - 30
+    payout = (snap.z_per_sec or 0) * 30 * 0.12
+  end
+  return outflow, payout
+end
+
+function M.collectPendingBonuses(state)
+  local total = 0
+  for _, it in ipairs(state.interactions) do
+    if it.bonus_unclaimed then
+      total = total + (it.bonus or 0)
+      it.bonus_unclaimed = false
+    end
+  end
+  return total
+end
+
+return M

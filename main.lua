@@ -1,0 +1,156 @@
+-- ZMINE — Zepton Mining
+-- Built for love.js / games.brassey.io
+
+local Game = require "src.game"
+local Fx   = require "src.fx"
+
+local DESIGN_W, DESIGN_H = 1920, 1080
+
+local state
+local fonts
+local canvas
+local crtShader
+local Shaders
+
+local function makeFonts()
+  return {
+    tiny    = love.graphics.newFont(12),
+    small   = love.graphics.newFont(16),
+    medium  = love.graphics.newFont(22),
+    large   = love.graphics.newFont(28),
+    bold    = love.graphics.newFont(22),
+    boldL   = love.graphics.newFont(28),
+    boldXL  = love.graphics.newFont(38),
+    giant   = love.graphics.newFont(48),
+  }
+end
+
+local function setupCanvas()
+  canvas = love.graphics.newCanvas(DESIGN_W, DESIGN_H)
+  canvas:setFilter("linear", "linear")
+end
+
+local function mouseToDesign(mx, my)
+  local w, h = love.graphics.getDimensions()
+  local scale = math.min(w / DESIGN_W, h / DESIGN_H)
+  local dx = (w - DESIGN_W * scale) * 0.5
+  local dy = (h - DESIGN_H * scale) * 0.5
+  return (mx - dx) / scale, (my - dy) / scale
+end
+
+function love.load()
+  love.graphics.setBackgroundColor(0.005, 0.015, 0.010)
+  -- Window scaling/positioning hint
+  if love.window.setMode then
+    love.window.setTitle("ZMINE — Zepton Mining")
+  end
+
+  fonts = makeFonts()
+  setupCanvas()
+
+  Shaders = require "src.shaders"
+  Shaders.load()
+  crtShader = Shaders.crt
+
+  state = Game.new({ fonts = fonts })
+
+  -- Welcome message
+  print("[ZMINE] facility runtime online")
+end
+
+function love.update(dt)
+  -- Cap dt to avoid catastrophic spikes
+  if dt > 0.1 then dt = 0.1 end
+  Game.update(state, dt, fonts)
+end
+
+function love.draw()
+  -- Render scene to internal canvas at design res
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 1)
+  local mx, my = mouseToDesign(love.mouse.getPosition())
+  Game.draw(state, fonts, mx, my)
+  love.graphics.setCanvas()
+
+  -- Letterbox + scale
+  local w, h = love.graphics.getDimensions()
+  local scale = math.min(w / DESIGN_W, h / DESIGN_H)
+  local dx = (w - DESIGN_W * scale) * 0.5
+  local dy = (h - DESIGN_H * scale) * 0.5
+
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+
+  -- Apply CRT post-process if available
+  if crtShader then
+    love.graphics.setShader(crtShader)
+    crtShader:send("u_size", { canvas:getWidth(), canvas:getHeight() })
+    crtShader:send("u_time", love.timer.getTime())
+    crtShader:send("u_strength", 0.18)
+  end
+  love.graphics.draw(canvas, dx, dy, 0, scale, scale)
+  if crtShader then love.graphics.setShader() end
+
+  -- Letterbox edges (subtle frame)
+  if dx > 0 or dy > 0 then
+    love.graphics.setColor(0.02, 0.05, 0.04, 1)
+    if dx > 0 then
+      love.graphics.rectangle("fill", 0, 0, dx, h)
+      love.graphics.rectangle("fill", w - dx, 0, dx, h)
+    end
+    if dy > 0 then
+      love.graphics.rectangle("fill", 0, 0, w, dy)
+      love.graphics.rectangle("fill", 0, h - dy, w, dy)
+    end
+  end
+end
+
+function love.mousepressed(mx, my, button, istouch, presses)
+  local lx, ly = mouseToDesign(mx, my)
+  Game.mousepressed(state, lx, ly, button)
+end
+
+function love.mousereleased(mx, my, button, istouch, presses)
+  local lx, ly = mouseToDesign(mx, my)
+  Game.mousereleased(state, lx, ly, button)
+end
+
+function love.mousemoved(mx, my, dxs, dys, istouch)
+  local lx, ly = mouseToDesign(mx, my)
+  Game.mousemoved(state, lx, ly, dxs, dys)
+end
+
+function love.wheelmoved(dx, dy)
+  Game.wheelmoved(state, dx, dy)
+end
+
+function love.textinput(text)
+  Game.textinput(state, text)
+end
+
+function love.keypressed(key, scancode, isrepeat)
+  Game.keypressed(state, key)
+end
+
+function love.resize(w, h)
+  -- Canvas size is fixed; scaling is applied in draw()
+end
+
+function love.focus(hasFocus)
+  Game.focus(state, hasFocus)
+end
+
+function love.quit()
+  Game.quit(state)
+  -- Clear persistent portal effects so we exit cleanly
+  Fx.mood("none", 0)
+  Fx.calm("none", 0)
+  Fx.pulsate("off")
+end
+
+function love.errorhandler(msg)
+  -- Minimal error reporter; let LÖVE default fall through if needed
+  print("[ZMINE] error: " .. tostring(msg))
+  print(debug.traceback())
+  return nil
+end
