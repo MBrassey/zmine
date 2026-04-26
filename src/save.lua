@@ -36,6 +36,7 @@ function M.save(state)
     zeptons_lifetime  = state.zeptons_lifetime,
     monoliths         = state.monoliths,
     miracles_invoked  = state.miracles_invoked,
+    _tutSessionCount  = state._tutSessionCount,
     -- active_miracles intentionally NOT saved — they're temporary
     -- and should expire across sessions.
     network       = state.network and {

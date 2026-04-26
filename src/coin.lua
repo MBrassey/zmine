@@ -150,13 +150,31 @@ function M.drawCentered(cx, cy, size, t, value, font, color, opts)
   M.drawWithLabel(cx - total / 2, cy, size, t, value, f, color, opts)
 end
 
--- BTC coin — official Bitcoin orange disk + white ₿ glyph constructed
--- from filled primitives so the symbol is solid and reads cleanly at
--- any size. Composition matches the real Bitcoin logo:
---   * orange circle (#F7931A)
---   * white vertical stem
---   * two white D-loops on the right with orange ring-cutouts
---   * two short vertical serifs above the top and below the bottom
+-- BTC coin — orange disk + the actual ₿ Unicode glyph (U+20BF). If the
+-- bundled font doesn't have ₿, fall back to a "B" plus four short
+-- vertical strokes (two above, two below) so the glyph is recognisable
+-- on any font. Way cleaner than hand-rolling the geometry from primitives.
+
+local btcFontCache = {}
+local function btcFont(s)
+  local key = math.max(8, math.floor(s))
+  if not btcFontCache[key] then
+    btcFontCache[key] = love.graphics.newFont(key)
+  end
+  return btcFontCache[key]
+end
+
+local btcGlyphResolved
+local function btcGlyph()
+  if btcGlyphResolved ~= nil then return btcGlyphResolved end
+  local f = btcFont(20)
+  if f.hasGlyphs and f:hasGlyphs("₿") then
+    btcGlyphResolved = "₿"
+  else
+    btcGlyphResolved = "B"
+  end
+  return btcGlyphResolved
+end
 function M.drawBTC(sx, sy, size, t, opts)
   opts = opts or {}
   size = size or 14
@@ -170,73 +188,53 @@ function M.drawBTC(sx, sy, size, t, opts)
     love.graphics.circle("fill", sx, sy, size * (1.05 + r * 0.10))
   end
 
-  -- Coin body — slightly darker outer disc, brighter inner highlight
+  -- Disc — slightly darker outer body, brighter inner highlight
   love.graphics.setColor(cR * 0.92, cG * 0.92, cB * 0.92, 1)
   love.graphics.circle("fill", sx, sy, size)
-  local hiR, hiG, hiB = math.min(1, cR + 0.05), math.min(1, cG + 0.06), math.min(1, cB + 0.06)
-  love.graphics.setColor(hiR, hiG, hiB, 1)
+  love.graphics.setColor(math.min(1, cR + 0.04), math.min(1, cG + 0.05), math.min(1, cB + 0.05), 1)
   love.graphics.circle("fill", sx, sy, size * 0.94)
 
-  -- Outer rim (darker)
+  -- Rim
   love.graphics.setColor(cR * 0.55, cG * 0.40, cB * 0.25, 1)
   love.graphics.setLineWidth(math.max(1.2, size * 0.06))
   love.graphics.circle("line", sx, sy, size)
   love.graphics.setLineWidth(1)
 
-  -- ₿ geometry. Stem on the left, two D-loops on the right.
-  local stemW   = size * 0.20
-  local stemH   = size * 1.04
-  local stemX   = sx - size * 0.36
-  local stemY   = sy - stemH * 0.5
-  local stemR   = stemX + stemW
-  local loopR   = size * 0.36
-  local loopInR = size * 0.18
-  local topLoopY = stemY + loopR
-  local botLoopY = stemY + stemH - loopR
+  -- Print the ₿ glyph (or "B" + manual strokes if the bundled font
+  -- doesn't have U+20BF). Font size is derived from coin size; cache
+  -- per-integer-size so we don't re-allocate fonts on every frame.
+  local prevFont = love.graphics.getFont()
+  local fontSize = math.floor(size * 1.55)
+  local font = btcFont(fontSize)
+  love.graphics.setFont(font)
+  local glyph = btcGlyph()
+  local glyphW = font:getWidth(glyph)
+  local glyphH = font:getHeight()
+  local gx = sx - glyphW / 2
+  local gy = sy - glyphH / 2 - size * 0.04
 
-  -- Drop shadow (subtle, baked into the coin face)
-  love.graphics.setColor(0.32, 0.16, 0.04, 0.40)
-  love.graphics.rectangle("fill", stemX + size * 0.05, stemY + size * 0.05, stemW, stemH)
-  love.graphics.arc("fill", "pie",
-    stemR + size * 0.05, topLoopY + size * 0.05, loopR, -math.pi / 2, math.pi / 2)
-  love.graphics.arc("fill", "pie",
-    stemR + size * 0.05, botLoopY + size * 0.05, loopR, -math.pi / 2, math.pi / 2)
-
-  -- White ₿
+  -- Drop shadow
+  love.graphics.setColor(0.20, 0.10, 0.02, 0.45)
+  love.graphics.print(glyph, gx + math.max(1, size * 0.05), gy + math.max(1, size * 0.05))
+  -- Bright glyph
   love.graphics.setColor(1, 1, 1, 1)
-  love.graphics.rectangle("fill", stemX, stemY, stemW, stemH)
-  -- Top D-loop (white semicircle, flat side facing the stem)
-  love.graphics.arc("fill", "pie", stemR, topLoopY, loopR, -math.pi / 2, math.pi / 2)
-  -- Bottom D-loop
-  love.graphics.arc("fill", "pie", stemR, botLoopY, loopR, -math.pi / 2, math.pi / 2)
+  love.graphics.print(glyph, gx, gy)
 
-  -- Orange ring-cutouts inside each loop so they read as rings, not pies.
-  -- This matches the Wikipedia Bitcoin logo where orange shows through.
-  love.graphics.setColor(hiR, hiG, hiB, 1)
-  love.graphics.arc("fill", "pie", stemR, topLoopY, loopInR, -math.pi / 2, math.pi / 2)
-  love.graphics.arc("fill", "pie", stemR, botLoopY, loopInR, -math.pi / 2, math.pi / 2)
+  -- Fallback strokes when the font doesn't carry ₿: emulate the two
+  -- vertical bars sticking above the top and below the bottom of a B.
+  if glyph == "B" then
+    local strokeW = math.max(1.5, size * 0.13)
+    local strokeH = math.max(2,   size * 0.20)
+    local b1 = sx - glyphW / 2 + glyphW * 0.18
+    local b2 = sx - glyphW / 2 + glyphW * 0.42
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", b1, gy - strokeH * 0.55, strokeW, strokeH)
+    love.graphics.rectangle("fill", b2, gy - strokeH * 0.55, strokeW, strokeH)
+    love.graphics.rectangle("fill", b1, gy + glyphH - strokeH * 0.45, strokeW, strokeH)
+    love.graphics.rectangle("fill", b2, gy + glyphH - strokeH * 0.45, strokeW, strokeH)
+  end
 
-  -- White connecting bar between the two cutouts (so the cutouts are
-  -- separate "eyes" not one big slot — and so the stem reads connected
-  -- to both loops at the inner edge).
-  love.graphics.setColor(1, 1, 1, 1)
-  local connY = sy - size * 0.06
-  local connH = size * 0.12
-  love.graphics.rectangle("fill", stemX, connY, stemW + size * 0.02, connH)
-
-  -- Top + bottom serifs: two short vertical bars above the top of the
-  -- stem and two below the bottom. These align with the "left edges"
-  -- of where the inner cut-outs would be if extrapolated.
-  local serifH = size * 0.18
-  local serifW = stemW * 0.45
-  local serifL = stemX + stemW * 0.08
-  local serifR = stemX + stemW * 0.50
-  -- Top
-  love.graphics.rectangle("fill", serifL, stemY - serifH, serifW, serifH + size * 0.02)
-  love.graphics.rectangle("fill", serifR, stemY - serifH, serifW, serifH + size * 0.02)
-  -- Bottom
-  love.graphics.rectangle("fill", serifL, stemY + stemH - size * 0.02, serifW, serifH + size * 0.02)
-  love.graphics.rectangle("fill", serifR, stemY + stemH - size * 0.02, serifW, serifH + size * 0.02)
+  if prevFont then love.graphics.setFont(prevFont) end
 
   -- Specular highlight (top-left of disc)
   love.graphics.setColor(1, 1, 1, 0.28)

@@ -490,6 +490,9 @@ function M.new(opts)
     state.monoliths        = data.monoliths or 0
     state.miracles_invoked = data.miracles_invoked or 0
     state.active_miracles  = data.active_miracles or {}
+    -- Returning-player session counter; bumped on every load.
+    -- The tutorial banner only renders during session 1.
+    state._tutSessionCount = (data._tutSessionCount or 0) + 1
     ensureCompleteState(state)
   end
 
