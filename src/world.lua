@@ -29,14 +29,22 @@ local PAD_HOLD_MAX  = 3.0
 
 -- Camera origin (where world-coord (0,0) lands in screen space).
 -- Derived from plot + tile dimensions so the diamond's center
--- projects to roughly canvas-center. With PLOT_W=24, PLOT_H=18,
--- TILE_W=96, TILE_H=48 the plot occupies (PLOT_W+PLOT_H)*TILE_H/2 = 504
--- pixels vertically and (PLOT_W+PLOT_H)*TILE_W/2 = 1008 wide
--- (rotated diamond bounds). We center the diamond on the canvas.
+-- projects to roughly canvas-center.
 local CAMERA = {
   sx = DESIGN_W / 2 - (PLOT_W - PLOT_H) * Iso.TILE_W * 0.25,
   sy = 96 + (DESIGN_H - 96 - 64 - (PLOT_W + PLOT_H) * Iso.TILE_H * 0.5) / 2,
 }
+
+-- Particles + floats are drawn AFTER the world-camera transform pops,
+-- so anything emitted in world coords needs the camera offset baked in
+-- before reaching the shared particle/float systems. Use this helper at
+-- every world-coord particle emit site.
+function M.toAbsScreen(wx, wy, wz)
+  local sx, sy = Iso.toScreen(wx, wy, wz)
+  return sx + CAMERA.sx, sy + CAMERA.sy
+end
+
+function M.cameraOffset() return CAMERA.sx, CAMERA.sy end
 
 -- ============================================================
 -- Layout
@@ -158,7 +166,9 @@ local function emitTrailParticles(state, char)
   local def = char.effects and char.effects.trail
   if not def then return end
   if (char.vx * char.vx + char.vy * char.vy) < 0.05 then return end
-  local sx, sy = Iso.toScreen(char.wx, char.wy, 0)
+  -- Absolute screen coords so the trail follows the character even
+  -- though the particle system draws outside the world transform.
+  local sx, sy = M.toAbsScreen(char.wx, char.wy, 0)
   local dx = -char.vx
   local dy = -char.vy
   local len = math.sqrt(dx * dx + dy * dy) + 0.001
@@ -210,7 +220,7 @@ local function emitSparkles(state, char)
   local def = char.effects and char.effects.sparkle
   if not def then return end
   if love.math.random() > 0.30 then return end
-  local sx, sy = Iso.toScreen(char.wx, char.wy, 0)
+  local sx, sy = M.toAbsScreen(char.wx, char.wy, 0)
   local color = def.color
   state.particles:emit({
     x = sx + (love.math.random() - 0.5) * 26,
@@ -343,9 +353,11 @@ local function tickCanisters(world, state, dt)
           world._lastPumpAt = love.timer.getTime()
           Audio.canisterPump()
         end
-        -- "Pump" event: emit particles flying toward facility-center
-        local sx, sy = Iso.toScreen(c.wx, c.wy, 0)
-        local cx, cy = Iso.toScreen(PLOT_W / 2, 1.5, 0)  -- toward "core"
+        -- Pump particles fly from canister position toward the player
+        -- character so the visual sink is something the operator is
+        -- already watching.
+        local sx, sy = M.toAbsScreen(c.wx, c.wy, 0)
+        local cx, cy = M.toAbsScreen(world.char.wx, world.char.wy, 0.4)
         for k = 0, 12 do
           state.particles:emit({
             x = sx + (love.math.random() - 0.5) * 10,

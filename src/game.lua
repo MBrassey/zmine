@@ -355,10 +355,10 @@ local function checkAchievements(state)
       Fx.ripple(hex, 0.5, 0.5, 1400)
       Fx.shatter(0.35, 600)
       M.message(state, "✦ Cosmetic: " .. def.name, def.color)
-      -- Burst on the character (world view)
+      -- Burst on the character (world view) — use the camera-aware
+      -- helper so particles land on the actual character position.
       if state.world and state.world.char then
-        local Iso = require "src.iso"
-        local sx, sy = Iso.toScreen(state.world.char.wx, state.world.char.wy, 0)
+        local sx, sy = World.toAbsScreen(state.world.char.wx, state.world.char.wy, 0)
         state.particles:burst({
           x = sx, y = sy - 30, n = 50,
           color = { def.color[1], def.color[2], def.color[3] },
