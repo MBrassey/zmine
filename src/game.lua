@@ -865,24 +865,11 @@ function M.update(state, dt, fonts)
     M.message(state, "⚡ surge ended", { 0.85, 0.55, 0.30 })
   end
 
-  -- Pool sharing economy (with pool_in_bonus upgrade)
-  if state.network.pool_with then
-    local outflow, payout = Network.tickPool(state.network, effDt, state.z_per_sec)
-    if outflow > 0 then state.z = state.z - outflow end
-    if payout > 0 then
-      payout = payout * (1 + (state.mods.pool_in_bonus or 0))
-      state.z = state.z + payout
-      state.z_lifetime = (state.z_lifetime or 0) + payout
-      M.message(state, string.format("Pool payout +%s Z", fmt.zeptons(payout)), { 0.55, 0.85, 0.95 })
-    end
-  end
-
-  -- Boost responses
-  local pendingBonus = Network.collectPendingBonuses(state.network)
-  if pendingBonus > 0 then
-    state.z = state.z + pendingBonus
-    state.z_lifetime = (state.z_lifetime or 0) + pendingBonus
-  end
+  -- Pool + boost no longer transfer BTC between players (the pool
+  -- partnership and boost/thanks ping are purely social signals;
+  -- you can never harvest another operator's currency).
+  Network.tickPool(state.network, effDt, state.z_per_sec)
+  Network.collectPendingBonuses(state.network)
 
   -- Achievements
   checkAchievements(state)
@@ -1253,15 +1240,16 @@ end
 
 function M.boost(state, target_id)
   if state.scene ~= "play" then return end
-  -- Cost: 5% of current Z, min 25
+  -- Boost is a one-way TIP out of your BTC balance. The recipient sees
+  -- a friendly ping; no BTC is transferred to them. This is a
+  -- reputation / vibe signal, not a peer-to-peer payment.
   local cost = math.max(25, state.z * 0.05)
   if state.z < cost then Audio.error_(); return end
   state.z = state.z - cost
   Network.interact(state.network, target_id, "boost", cost)
   Audio.buy()
   Fx.flash("#5db4ff", 180, 0.45)
-  Fx.ripple("#5db4ff", 0.42, 0.5, 800)
-  M.message(state, string.format("Boost sent — %s Z", fmt.zeptons(cost)),
+  M.message(state, string.format("Boost sent — %s ₿ (tip, no return)", fmt.zeptons(cost)),
     { 0.55, 0.85, 0.95 })
   -- Particles flying out
   local cx, cy = Facility.coreCenter()

@@ -410,20 +410,16 @@ local function onNetEvent(state, evt)
         { 0.45, 0.70, 0.95 })
     end
   elseif evt.verb == "thanks" then
-    -- Inbound thanks. Credit bonus if addressed to me.
+    -- Inbound thanks — purely social. No BTC is credited; the boost
+    -- you sent earlier was a tip out of your own balance with no
+    -- expected return. We just surface a "they say thanks" toast.
     local target = payload.target or payload.to
     if target and state.self_userId and target == state.self_userId then
-      local bonus = tonumber(payload.amount) or 0
-      table.insert(state.interactions, {
-        kind = "thanks_credit",
-        bonus = bonus,
-        bonus_unclaimed = true,
-      })
       local senderName = evt.handle or "operator"
       local senderPeer = state.realPeers[evt.userId or ""]
       if senderPeer then senderName = senderPeer.facility_name end
       pushEvent(state, "thanks",
-        string.format("✦  %s thanks you — +%s Z bonus", senderName, fmt.zeptons(bonus)),
+        string.format("✦  %s says thanks for the boost", senderName),
         { 1, 0.85, 0.45 })
     end
   elseif evt.verb == "pool_request" then
@@ -893,27 +889,19 @@ function M.update(state, dt, playerStats)
   -- Process pending interactions: outbound boosts → schedule local thanks
   -- credit only if the partner is sim (real partner replies via the wire).
   for _, it in ipairs(state.interactions) do
+    -- Boost / thanks is now purely SOCIAL — no BTC is transferred or
+    -- minted between players. The sender pays a tip out of their own
+    -- balance and the recipient sends back a thank-you ping with no
+    -- currency attached.
     if it.kind == "outgoing_boost_sim" and not it.responded and state._t >= it.respond_at then
       it.responded = true
-      it.bonus = it.paid * (1.2 + love.math.random() * 0.6)
-      it.bonus_unclaimed = true
       pushEvent(state, "thanks",
-        string.format("✦  %s thanks you — +%s Z bonus", it.target_name or "operator", fmt.zeptons(it.bonus)),
+        string.format("✦  %s says thanks for the boost", it.target_name or "operator"),
         { 1, 0.85, 0.45 })
     end
     if it.kind == "incoming_boost" and not it.responded and state._t >= it.respond_at then
       it.responded = true
-      -- Cap is anchored to YOUR rate (the trustable side) but allowed
-      -- to scale with paid amount when the player is genuinely high-tier.
-      -- This keeps anti-cheat bite while letting late-game flexing land.
-      local rateBudget = (playerStats.z_per_sec or 0) * 60
-      local maxBonus = math.max(50, rateBudget)
-      local paidScaled = (it.paid or 0) * 5
-      maxBonus = math.max(maxBonus, paidScaled)
-      local bonus = (it.paid or 0) * (1.2 + love.math.random() * 0.6)
-      if bonus > maxBonus then bonus = maxBonus end
-      if bonus > 1e12 then bonus = 1e12 end
-      Net.send("thanks", { amount = bonus }, it.from_id)
+      Net.send("thanks", {}, it.from_id)
     end
   end
 
@@ -1125,31 +1113,18 @@ end
 -- ============================================================
 
 function M.tickPool(state, dt, playerZps)
-  if not state.pool_with then return 0, 0 end
-  local snap
-  for _, sn in ipairs(state._snapshots or {}) do
-    if sn.id == state.pool_with then snap = sn; break end
-  end
-  if not snap then return 0, 0 end
-  local outflow = (playerZps or 0) * 0.05 * dt
-  state._poolAccum = (state._poolAccum or 0) + dt
-  local payout = 0
-  if state._poolAccum >= 30 then
-    state._poolAccum = state._poolAccum - 30
-    payout = (snap.z_per_sec or 0) * 30 * 0.12
-  end
-  return outflow, payout
+  -- Pool is now PURELY SOCIAL — no BTC is moved between players. You
+  -- can't harvest someone else's currency by syncing to them. The
+  -- partnership remains visible (status badges, ticker events, the
+  -- ⛓ POOLED w/ name HUD pill) but no currency flows in either
+  -- direction. Returns zero outflow and zero payout always.
+  return 0, 0
 end
 
 function M.collectPendingBonuses(state)
-  local total = 0
-  for _, it in ipairs(state.interactions) do
-    if it.bonus_unclaimed then
-      total = total + (it.bonus or 0)
-      it.bonus_unclaimed = false
-    end
-  end
-  return total
+  -- Boost / thanks no longer transfers BTC between players. Returns
+  -- zero so M.update never adds to state.z from peer interactions.
+  return 0
 end
 
 return M

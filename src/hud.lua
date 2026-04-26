@@ -35,57 +35,72 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.20, 0.85, 0.50, 0.25)
   love.graphics.rectangle("fill", 0, HUD_H - 1, DESIGN_W, 4)
 
-  -- Section: facility name (top-left)
+  -- Section: facility name (top-left). Truncated so it never bleeds
+  -- into the TAB / OPS pills sitting at x=360.
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.40, 0.70, 0.55, 1)
   love.graphics.print("FACILITY", 30, 14)
 
   love.graphics.setFont(fonts.large)
   love.graphics.setColor(0.85, 1, 0.92, 1)
-  love.graphics.print(state.facility_name or "—", 30, 36)
+  local name = state.facility_name or "—"
+  -- Shrink the name's drawn width to fit 300 px so the next section
+  -- (the TAB / OPS pill pair starting at x=360) never overlaps.
+  local nameW = fonts.large:getWidth(name)
+  local availW = 300
+  if nameW > availW then
+    -- Truncate with an ellipsis that fits.
+    while #name > 1 and fonts.large:getWidth(name .. "…") > availW do
+      name = name:sub(1, -2)
+    end
+    name = name .. "…"
+  end
+  love.graphics.print(name, 30, 36)
 
-  -- Section: BITCOIN balance (center-left) — orange ₿ coin.
-  -- The internal field state.z is the working currency; in this
-  -- economy that's BITCOIN. Zeptons are a separate rare currency
-  -- displayed to the right.
+  -- Section: BITCOIN balance — fixed x band 540..880, never bleeds.
+  --   BITCOIN label  y=10
+  --   ₿ coin         y=42 (centered)
+  --   Balance        y=28 (boldXL)
+  --   Rate "+X /s"   y=66 (tiny)
   local zx = 540
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1.00, 0.65, 0.20, 1)
-  love.graphics.print("BITCOIN", zx, 14)
+  love.graphics.print("BITCOIN", zx, 10)
 
-  -- BTC coin (orange ₿)
-  Coin.drawBTC(zx + 26, 56, 22, t)
+  Coin.drawBTC(zx + 16, 50, 16, t)
 
-  love.graphics.setFont(fonts.giant)
-  local s = fmt.zeptons(state.z)
-  love.graphics.setColor(1, 0.75, 0.30, 0.30)
-  love.graphics.print(s, zx + 60 + 2, 32 + 2)
+  love.graphics.setFont(fonts.boldXL)
+  local s = fmt.zeptons(state.z or 0)
+  love.graphics.setColor(1, 0.75, 0.30, 0.25)
+  love.graphics.print(s, zx + 38 + 1, 28 + 1)
   love.graphics.setColor(1, 0.85, 0.40, 1)
-  love.graphics.print(s, zx + 60, 32)
+  love.graphics.print(s, zx + 38, 28)
 
-  -- Rate beside balance
-  love.graphics.setFont(fonts.medium)
-  local rateStr = "+" .. fmt.rate(state.z_per_sec) .. " ₿"
-  local zw = fonts.giant:getWidth(s)
-  love.graphics.setColor(1, 0.80, 0.35, 1)
-  love.graphics.print(rateStr, zx + 60 + zw + 18, 56)
-
-  -- Zeptons sub-block under the BTC rate (rare apex resource)
-  local zptX = zx + 60 + zw + 18
   love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(1, 0.80, 0.35, 0.95)
+  love.graphics.print("+" .. fmt.rate(state.z_per_sec or 0) .. " /s",
+                      zx + 38, 70)
+
+  -- Section: ZEPTONS — fixed x band 890..1080, never collides with BTC.
+  local zptX = 890
+  love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.30, 1.00, 0.55, 1)
-  love.graphics.print("ZEPTONS", zptX, 14)
-  love.graphics.setFont(fonts.bold)
-  -- Glowing green Z-coin alongside the value
-  Coin.draw(zptX + 10, 36, 9, t)
+  love.graphics.print("ZEPTONS", zptX, 10)
+
+  Coin.draw(zptX + 14, 50, 14, t)
+
+  love.graphics.setFont(fonts.medium)
   local zptStr = fmt.zeptons(state.zeptons or 0)
+  love.graphics.setColor(0.30, 1.00, 0.55, 0.30)
+  love.graphics.print(zptStr, zptX + 34 + 1, 36 + 1)
   love.graphics.setColor(0.55, 1, 0.75, 1)
-  love.graphics.print(zptStr, zptX + 26, 28)
+  love.graphics.print(zptStr, zptX + 34, 36)
+
   if (state.zeptons_per_sec or 0) > 0 then
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.45, 0.95, 0.65, 0.95)
-    love.graphics.print(string.format("+%.2f Z/s", state.zeptons_per_sec),
-      zptX, 78)
+    love.graphics.print(string.format("+%.2f /s", state.zeptons_per_sec),
+                        zptX + 34, 70)
   end
 
   -- Section: energy
