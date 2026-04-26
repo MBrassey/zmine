@@ -224,8 +224,104 @@ local function drawFootDust(c, sx, sy, t)
   end
 end
 
+-- Sleep pod: a small futuristic levitating capsule the peer lies in
+-- when their snapshot status is offline. Replaces the upright body
+-- entirely so the player reads "they're asleep at their station", not
+-- "they're standing there ignoring me". Iso-projected centred on the
+-- character's foot position.
+local function drawSleepPod(c, sx, sy, t)
+  local cx, cy = sx, sy - 8
+  local sR, sG, sB = c.shirtColor[1], c.shirtColor[2], c.shirtColor[3]
+  local aR, aG, aB = c.accentColor[1], c.accentColor[2], c.accentColor[3]
+
+  local hover = math.sin(t * 1.6 + (c.breath or 0)) * 1.2
+
+  -- Levitation glow under the pod
+  for r = 4, 0, -1 do
+    love.graphics.setColor(aR * 0.5, aG * 0.7, aB * 1.0, (1 - r/5) * 0.18)
+    love.graphics.ellipse("fill", cx, sy + 6, 32 + r * 3, 6 + r)
+  end
+
+  -- Pod hull (dark base shell)
+  love.graphics.setColor(0.05, 0.07, 0.10, 0.95)
+  love.graphics.ellipse("fill", cx, cy + hover + 4, 30, 11)
+  love.graphics.setColor(0.10, 0.13, 0.18, 1)
+  love.graphics.ellipse("fill", cx, cy + hover + 2, 30, 10)
+  love.graphics.setColor(aR * 0.45, aG * 0.55, aB * 0.65, 0.85)
+  love.graphics.ellipse("line", cx, cy + hover + 2, 30, 10)
+
+  -- Lying body inside the pod: head + torso silhouette, oriented
+  -- west→east so the head sits at the player's left in iso.
+  local bodyY = cy + hover - 1
+  -- Torso (horizontal capsule)
+  love.graphics.setColor(sR, sG, sB, 1)
+  love.graphics.rectangle("fill", cx - 12, bodyY - 3, 22, 6, 3, 3)
+  love.graphics.setColor(sR * 0.55, sG * 0.55, sB * 0.55, 1)
+  love.graphics.rectangle("line", cx - 12, bodyY - 3, 22, 6, 3, 3)
+  -- Chest accent stripe (matches upright character's accent)
+  love.graphics.setColor(aR, aG, aB, 0.85)
+  love.graphics.rectangle("fill", cx - 10, bodyY - 1, 18, 1.5)
+  -- Head (small skin-toned circle at the west end)
+  local skR, skG, skB = c.skinColor[1], c.skinColor[2], c.skinColor[3]
+  love.graphics.setColor(skR, skG, skB, 1)
+  love.graphics.circle("fill", cx - 14, bodyY, 3.5)
+  love.graphics.setColor(skR * 0.55, skG * 0.55, skB * 0.55, 1)
+  love.graphics.circle("line", cx - 14, bodyY, 3.5)
+
+  -- Glass canopy: rim arc + faint highlight sweep
+  love.graphics.setColor(aR, aG, aB, 0.55)
+  love.graphics.setLineWidth(1.2)
+  love.graphics.arc("line", "open", cx, cy + hover + 1, 28, math.pi, 0)
+  love.graphics.setColor(1, 1, 1, 0.15)
+  love.graphics.arc("line", "open", cx - 6, cy + hover - 2, 18, math.pi * 1.05, math.pi * 1.55)
+  love.graphics.setLineWidth(1)
+
+  -- Two pulsing status pips on the pod rim
+  local pip = 0.55 + math.sin(t * 2.4) * 0.35
+  love.graphics.setColor(aR, aG, aB, pip)
+  love.graphics.circle("fill", cx + 22, cy + hover + 2, 1.5)
+  love.graphics.setColor(0.95, 0.55, 0.45, pip * 0.85)
+  love.graphics.circle("fill", cx - 22, cy + hover + 2, 1.5)
+
+  return cx - 14, bodyY -- head position so caller can place the Zs
+end
+
 function M.draw(c, t)
   local sx, sy = Iso.toScreen(c.wx, c.wy, c.wz or 0)
+
+  if c.asleep then
+    -- Pod replaces the entire standing render. Soft contact shadow
+    -- under the levitation glow keeps the iso depth read.
+    for r = 3, 0, -1 do
+      love.graphics.setColor(0, 0, 0, (1 - r/4) * 0.40)
+      love.graphics.ellipse("fill", sx, sy + 6, 22 + r * 2, 4 + r)
+    end
+    local hx, hy = drawSleepPod(c, sx, sy, t)
+    -- Three Z's drifting up from the head end of the pod
+    for i = 0, 2 do
+      local cycle = (t * 0.55 + i * 0.40) % 1
+      local zx = hx - 4 + math.sin(cycle * 6.28 + i) * 3 - i * 2
+      local zy = hy - 8 - cycle * 22
+      local alpha = (1 - cycle) * 0.85
+      love.graphics.setColor(0.70, 0.85, 1.00, alpha)
+      love.graphics.print("z", zx, zy)
+    end
+    -- Label above the pod (desaturated, no halo, no rest of body)
+    if c.label then
+      local font = love.graphics.getFont()
+      local lw = font:getWidth(c.label)
+      local labelY = sy - 44
+      love.graphics.setColor(0, 0, 0, 0.65)
+      love.graphics.rectangle("fill", sx - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
+      love.graphics.setColor(0.50, 0.55, 0.60, 0.85)
+      love.graphics.setLineWidth(1)
+      love.graphics.rectangle("line", sx - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
+      love.graphics.setColor(0.65, 0.70, 0.75, 0.90)
+      love.graphics.print(c.label, sx - lw/2, labelY)
+    end
+    return
+  end
+
   local moving = (c.vx * c.vx + c.vy * c.vy) > 0.05
   local wp = c.walkPhase or 0
   -- Walking pose
@@ -400,49 +496,25 @@ function M.draw(c, t)
   -- Halo / crown above head
   drawHalo(c, headX, headY - 8, t)
 
-  -- Peer halo glow (faint blue ambient). Dimmer when asleep.
+  -- Peer halo glow (faint blue ambient).
   if c.isPeer then
     local pulse = 0.18 + math.sin(t * 2) * 0.06
-    if c.asleep then pulse = pulse * 0.35 end
     love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], pulse)
     love.graphics.circle("fill", bodyX, bodyY - 36, 30)
   end
 
-  -- Label above head. Asleep peers get a desaturated label so it reads
-  -- as inactive at a glance.
+  -- Label above head
   if c.label then
     local font = love.graphics.getFont()
     local lw = font:getWidth(c.label)
     local labelY = headY - 26
     love.graphics.setColor(0, 0, 0, 0.65)
     love.graphics.rectangle("fill", bodyX - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
-    if c.asleep then
-      love.graphics.setColor(0.50, 0.55, 0.60, 0.85)
-    else
-      love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], 1)
-    end
+    love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], 1)
     love.graphics.setLineWidth(1)
     love.graphics.rectangle("line", bodyX - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
-    if c.asleep then
-      love.graphics.setColor(0.65, 0.70, 0.75, 0.90)
-    else
-      love.graphics.setColor(0.95, 1, 0.92, 1)
-    end
+    love.graphics.setColor(0.95, 1, 0.92, 1)
     love.graphics.print(c.label, bodyX - lw/2, labelY)
-  end
-
-  -- Sleep indicator: three Zs drifting up + sideways above the head.
-  -- Only for peers we know are offline; the player avatar never gets this.
-  if c.asleep then
-    local font = love.graphics.getFont()
-    for i = 0, 2 do
-      local cycle = (t * 0.6 + i * 0.45) % 1
-      local zx = bodyX + 12 + math.sin(cycle * 6.28 + i) * 4 + i * 4
-      local zy = headY - 30 - cycle * 22
-      local alpha = (1 - cycle) * 0.85
-      love.graphics.setColor(0.70, 0.85, 1.00, alpha)
-      love.graphics.print("z", zx, zy)
-    end
   end
 end
 
