@@ -540,6 +540,11 @@ function M.new(opts)
   -- Persistent ambient effects in portal
   Fx.mood("#0a1a12", 0.18)
   Fx.calm("#33ff88", 0.20)
+  -- Hide the floating top-right ↩ exit handle. The status-bar exit
+  -- button at the bottom is the canonical escape hatch; the floating
+  -- overlay was visually intrusive on the canvas. Silent no-op on
+  -- older portal builds.
+  Fx.hideExitHandle()
   Audio.startHum()
 
   return state

@@ -121,4 +121,15 @@ function M.pulsate(color, bpm, intensity)
   end
 end
 
+-- Portal exit-handle visibility. The status-bar "exit game" button at
+-- the bottom is always present; this only controls the floating
+-- top-right `↩ exit` overlay. Silent no-op on older portal builds.
+function M.hideExitHandle()
+  print("[[LOVEWEB_FX]]hide_exit_handle")
+end
+
+function M.showExitHandle()
+  print("[[LOVEWEB_FX]]show_exit_handle")
+end
+
 return M
