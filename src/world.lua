@@ -471,8 +471,12 @@ local function updatePeers(world, state, dt)
     elseif pc.char._waveTimer and pc.char._waveTimer > 0 then
       pc.char._waveTimer = math.max(0, pc.char._waveTimer - dt)
     end
-    -- Drift peer along a slow Lissajous
+    -- Drift peer along a slow Lissajous. Mark asleep when offline so
+    -- the renderer dims the halo/label and floats Z's above their head
+    -- — otherwise an offline peer just stands frozen and reads as
+    -- "they're standing right there but ignoring me".
     pc.path_t = pc.path_t + dt * pc.path_speed
+    pc.char.asleep = (snap.status == "offline")
     if snap.status == "offline" then
       pc.char.vx = 0; pc.char.vy = 0
     else

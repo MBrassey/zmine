@@ -28,6 +28,7 @@ function M.new(opts)
     accentColor  = opts.accentColor or { 0.30, 1.00, 0.55 },
     label        = opts.label,
     isPeer       = opts.isPeer or false,
+    asleep       = opts.asleep or false,
     -- Passive motion state
     breath       = love.math.random() * 6.28,
     sway         = love.math.random() * 6.28,
@@ -399,25 +400,49 @@ function M.draw(c, t)
   -- Halo / crown above head
   drawHalo(c, headX, headY - 8, t)
 
-  -- Peer halo glow (faint blue ambient)
+  -- Peer halo glow (faint blue ambient). Dimmer when asleep.
   if c.isPeer then
     local pulse = 0.18 + math.sin(t * 2) * 0.06
+    if c.asleep then pulse = pulse * 0.35 end
     love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], pulse)
     love.graphics.circle("fill", bodyX, bodyY - 36, 30)
   end
 
-  -- Label above head
+  -- Label above head. Asleep peers get a desaturated label so it reads
+  -- as inactive at a glance.
   if c.label then
     local font = love.graphics.getFont()
     local lw = font:getWidth(c.label)
     local labelY = headY - 26
     love.graphics.setColor(0, 0, 0, 0.65)
     love.graphics.rectangle("fill", bodyX - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
-    love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], 1)
+    if c.asleep then
+      love.graphics.setColor(0.50, 0.55, 0.60, 0.85)
+    else
+      love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], 1)
+    end
     love.graphics.setLineWidth(1)
     love.graphics.rectangle("line", bodyX - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
-    love.graphics.setColor(0.95, 1, 0.92, 1)
+    if c.asleep then
+      love.graphics.setColor(0.65, 0.70, 0.75, 0.90)
+    else
+      love.graphics.setColor(0.95, 1, 0.92, 1)
+    end
     love.graphics.print(c.label, bodyX - lw/2, labelY)
+  end
+
+  -- Sleep indicator: three Zs drifting up + sideways above the head.
+  -- Only for peers we know are offline; the player avatar never gets this.
+  if c.asleep then
+    local font = love.graphics.getFont()
+    for i = 0, 2 do
+      local cycle = (t * 0.6 + i * 0.45) % 1
+      local zx = bodyX + 12 + math.sin(cycle * 6.28 + i) * 4 + i * 4
+      local zy = headY - 30 - cycle * 22
+      local alpha = (1 - cycle) * 0.85
+      love.graphics.setColor(0.70, 0.85, 1.00, alpha)
+      love.graphics.print("z", zx, zy)
+    end
   end
 end
 
