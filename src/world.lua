@@ -282,6 +282,30 @@ local function updatePeers(world, state, dt)
   end
 end
 
+-- Tutorial state: drives a contextual hint banner so a new player has
+-- a clear next step. Hides automatically once the loop is established.
+-- Declared before M.update / drawHelpBanner so both can call it.
+local function tutorialPhase(state)
+  -- Phase 1: never walked yet
+  if not state._tutPhase or state._tutPhase < 2 then
+    if state.world and state.world.char and (state.world.char.walkPhase or 0) > 0.4 then
+      state._tutPhase = 2
+    else
+      return 1
+    end
+  end
+  -- Phase 2: hasn't bought past the starter
+  local count = 0
+  for _, def in ipairs(minersDb.list) do count = count + (state.miners[def.key] or 0) end
+  for _, def in ipairs(energyDb.list) do count = count + (state.energy[def.key] or 0) end
+  if state._tutPhase == 2 and count <= 2 then return 2 end
+  if state._tutPhase < 3 then state._tutPhase = 3 end
+  -- Phase 3: hasn't visited the Z store yet
+  if state._tutPhase == 3 and not state._sawCoreOps then return 3 end
+  if state._tutPhase < 4 then state._tutPhase = 4 end
+  return 4
+end
+
 local function tickCanisters(world, state, dt)
   -- Canister fills from the per-tier z_per_sec contribution.
   -- Each miner type fills at its share of total z_per_sec.
@@ -552,28 +576,6 @@ end
 -- ============================================================
 
 -- Tutorial state: drives a contextual hint banner so a new player has
--- a clear next step. Hides automatically once the loop is established.
-local function tutorialPhase(state)
-  -- Phase 1: never walked yet
-  if not state._tutPhase or state._tutPhase < 2 then
-    if state.world and state.world.char and (state.world.char.walkPhase or 0) > 0.4 then
-      state._tutPhase = 2
-    else
-      return 1
-    end
-  end
-  -- Phase 2: hasn't bought past the starter
-  local count = 0
-  for _, def in ipairs(minersDb.list) do count = count + (state.miners[def.key] or 0) end
-  for _, def in ipairs(energyDb.list) do count = count + (state.energy[def.key] or 0) end
-  if state._tutPhase == 2 and count <= 2 then return 2 end
-  if state._tutPhase < 3 then state._tutPhase = 3 end
-  -- Phase 3: hasn't visited the Z store yet
-  if state._tutPhase == 3 and not state._sawCoreOps then return 3 end
-  if state._tutPhase < 4 then state._tutPhase = 4 end
-  return 4
-end
-
 local function drawHelpBanner(world, state, fonts)
   local x = 40
   local y = DESIGN_H - 200
