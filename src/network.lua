@@ -555,6 +555,10 @@ local function onSlugEvent(state, evt)
       string.format("✦  %s unlocked %s [global]", who, payload.name or "a new tier"),
       { 1, 0.85, 0.45 })
   elseif evt.verb == "surge_started" then
+    -- Authoritative: set the local surge timer from the broadcast itself.
+    local dur = (tonumber(payload.duration_ms) or 120000) / 1000
+    state._surgeUntil = love.timer.getTime() + dur
+    state._surgeMult  = tonumber(payload.mult) or 0.5
     pushEvent(state, "surge",
       string.format("⚡  GLOBAL SURGE +%d%% — %ds", math.floor((payload.mult or 0.5) * 100),
                     math.floor((payload.duration_ms or 0) / 1000)),
@@ -597,23 +601,18 @@ local function maybeBroadcastBigEvents(state, playerStats)
   end
 end
 
+-- Surge clock: trust the surge_started broadcast we already receive; only
+-- reconcile via slug_state to detect cancellation (surge_until == 0). The
+-- previous reconciliation math cancelled itself; this is much simpler.
 local function checkSurge(state)
   local sst = Net.slugState
   if not sst or not sst.state then return end
   local until_ms = tonumber(sst.state.surge_until or 0) or 0
-  if until_ms > 0 then
-    local now_ms = math.floor(love.timer.getTime() * 1000) +
-                   ((Net.active and Net.active.at) or 0) - math.floor(love.timer.getTime() * 1000)
-    -- We can't reliably reconcile wall-clock time on the client, so use the
-    -- portal's `at` if it's recent. Conservative fallback: treat surge_until
-    -- as a rough relative offset by comparing to last seen `Net.active.at`.
-    local effectiveNow = (Net.active and Net.active.at) or os.time() * 1000
-    if effectiveNow < until_ms then
-      state._surgeUntil = love.timer.getTime() + (until_ms - effectiveNow) / 1000
-    else
-      state._surgeUntil = 0
-    end
+  local effectiveNow = (Net.active and Net.active.at) or os.time() * 1000
+  if until_ms <= 0 or effectiveNow >= until_ms then
+    state._surgeUntil = 0
   end
+  -- Otherwise the surge_started broadcast handler set _surgeUntil already.
 end
 
 function M.update(state, dt, playerStats)
@@ -622,6 +621,14 @@ function M.update(state, dt, playerStats)
   state._lastTick = state._t
 
   state.self_facility_name = playerStats.facility_name or state.self_facility_name
+
+  -- Refresh identity FIRST so target-filtering of inbound boost / wave
+  -- doesn't race against the first poll batch.
+  Net.refreshIdentity()
+  if Net.identity and Net.identity.userId then
+    state.self_userId = Net.identity.userId
+    state.self_handle = Net.identity.handle
+  end
 
   Net.poll(function (evt)
     onNetEvent(state, evt)
@@ -641,11 +648,17 @@ function M.update(state, dt, playerStats)
   -- Try to bootstrap a room
   attemptBootstrap(state)
 
-  -- Mode flip: if we're in a room, prefer real peers
-  if Net.connected() and Net.room and Net.room.id then
+  -- Mode flip with hysteresis: a single status blip during reconnect
+  -- shouldn't blow the snapshot list back to all-sim.
+  local connected = Net.connected() and Net.room and Net.room.id
+  if connected then
+    state._modeMisses = 0
     state.mode = "real"
   else
-    state.mode = "sim"
+    state._modeMisses = (state._modeMisses or 0) + 1
+    if state._modeMisses >= 2 then
+      state.mode = "sim"
+    end
   end
 
   -- Apply roster (mark online/offline among realPeers)
@@ -680,11 +693,15 @@ function M.update(state, dt, playerStats)
   local totalRate, totalHash = 0, 0
   state._snapshots = {}
   if state.mode == "real" then
-    -- Real peers (excluding self)
+    -- Real peers (excluding self) with hysteresis around the AFK gate so
+    -- normal 8 s broadcast jitter doesn't flicker the badge.
     for _, p in pairs(state.realPeers) do
       local status
       if p.online then
-        if (state._t - (p.lastUpdate or 0)) > 30 then
+        local gap = state._t - (p.lastUpdate or state._t)
+        if gap > 90 then
+          status = "offline"
+        elseif gap > 40 then
           status = "afk"
         else
           status = "online"
@@ -709,15 +726,17 @@ function M.update(state, dt, playerStats)
       totalRate = totalRate + effRate
       totalHash = totalHash + (p.hashrate or 0)
     end
-    -- If we're connected but the room is empty, top up with a few sim ghosts
-    -- so the panel doesn't feel barren.
+    -- If we're connected but the room is empty, top up with a few "DEMO"
+    -- peers so the panel doesn't feel barren — but tag them clearly so
+    -- the user sees they're placeholder, not real, and exclude their
+    -- numbers from the global hash-rate aggregation.
     if #state._snapshots == 0 then
       for i = 1, math.min(6, #state.sim_players) do
         local p = state.sim_players[i]
         local snap = simSnapshot(p, state._t, playerStats)
+        snap.placeholder = true
+        snap.name = "DEMO  ·  " .. snap.name
         table.insert(state._snapshots, snap)
-        totalRate = totalRate + snap.z_per_sec
-        totalHash = totalHash + snap.hashrate
         maybeSimAnnounceBlock(state, p, snap)
         maybeSimAnnounceBuild(state, p, snap)
       end
@@ -839,9 +858,15 @@ function M.update(state, dt, playerStats)
     end
     if it.kind == "incoming_boost" and not it.responded and state._t >= it.respond_at then
       it.responded = true
-      -- Send thanks to the sender across the wire
+      -- Send thanks to the sender across the wire — with a defensive cap
+      -- so a malicious peer claiming `paid: 1e18` can't mint zeptons on
+      -- the recipient's leaderboard. Anchor to OUR rate (the trustable side).
+      local rateBudget = (playerStats.z_per_sec or 0) * 60
+      local maxBonus = math.max(50, rateBudget)
       local bonus = (it.paid or 0) * (1.2 + love.math.random() * 0.6)
-      Net.send("thanks", { target = it.from_id, amount = bonus })
+      if bonus > maxBonus then bonus = maxBonus end
+      if bonus > 1e9 then bonus = 1e9 end
+      Net.send("thanks", { amount = bonus }, it.from_id)
     end
   end
 

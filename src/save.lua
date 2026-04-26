@@ -33,9 +33,12 @@ function M.save(state)
     last_block_at = state.last_block_at,
     cosmetics     = state.cosmetics,
     network       = state.network and {
-      pool_with    = state.network.pool_with,
-      boostCount   = state.network.boostCount,
-      peer_memory  = state.network.peer_memory,
+      pool_with               = state.network.pool_with,
+      boostCount              = state.network.boostCount,
+      peer_memory             = state.network.peer_memory,
+      _broadcastedNewTiers    = state.network._broadcastedNewTiers,
+      _broadcastedBlocks      = state.network._broadcastedBlocks,
+      _broadcastedHalvings    = state.network._broadcastedHalvings,
     } or nil,
     saved_at      = os.time(),
   }

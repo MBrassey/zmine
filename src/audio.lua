@@ -105,7 +105,8 @@ local function clickChime(freqBase)
   end, dur, { reverb = { gain = 0.18, taps = { 800, 2200, 4800 } } })
 end
 
-local function buyChime(notes)
+local function buyChime(notes, opts)
+  opts = opts or {}
   -- Up-arpeggio chord with shimmer reverb
   local dur = 0.42
   return fillBuffer(function(t)
@@ -124,7 +125,35 @@ local function buyChime(notes)
       end
     end
     return v / #notes * 0.35
-  end, dur + 0.4, { reverb = { gain = 0.30, taps = { 1500, 3500, 7500, 14000 } } })
+  end, dur + 0.4, { reverb = { gain = opts.reverbGain or 0.30, taps = opts.reverbTaps or { 1500, 3500, 7500 } } })
+end
+
+local function halvingHit()
+  -- Sub-bass plunge + metallic shimmer + slow tail. Halving deserves a
+  -- distinct, ominous voice that won't be confused with any other event.
+  local dur = 0.85
+  return fillBuffer(function(t)
+    local env = envADSR(t, dur, 0.001, 0.20, 0.40, 0.30)
+    local subFreq = 110 * math.exp(-t * 1.2)  -- pitch falls
+    local sub = math.sin(2 * math.pi * subFreq * t) * 0.60
+    local n = (love.math.random() * 2 - 1) * math.exp(-t * 4) * 0.40
+    local shimmer = math.sin(2 * math.pi * 880 * t) * 0.25 * math.exp(-t * 2.5)
+    return (sub + n + shimmer) * env * 0.45
+  end, dur + 0.5, { reverb = { gain = 0.28, taps = { 2000, 5500, 11000, 18000 } } })
+end
+
+local function surgeRoar()
+  -- Ascending pitch sweep + harmonic stack swell — the global surge cue.
+  local dur = 0.95
+  return fillBuffer(function(t)
+    local env = envADSR(t, dur, 0.05, 0.12, 0.50, 0.40)
+    local sweep = 220 + (1 - math.exp(-t * 3)) * 660
+    local s = math.sin(2 * math.pi * sweep * t) * 0.45
+            + math.sin(2 * math.pi * sweep * 1.5 * t) * 0.25
+            + math.sin(2 * math.pi * sweep * 2 * t) * 0.15
+    local n = (love.math.random() * 2 - 1) * env * 0.20
+    return (s + n) * env * 0.42
+  end, dur + 0.5, { reverb = { gain = 0.32, taps = { 1800, 4500, 9500, 16000 } } })
 end
 
 local function fanfare(notes, totalDur, vol)
@@ -291,28 +320,32 @@ local sources = {}
 local function ensure()
   if cache.click then return end
 
+  -- Buy / upgrade reverb tails trimmed (no 17k tap) to avoid muddy onsets
+  -- on rapid trading; achievement / peerJoin / tierUp keep long tails.
   cache.click       = clickChime(880)
   cache.click_alt   = clickChime(990)
   cache.coreHum     = richDrone(120, 4.0, 0.06)
-  cache.buy         = buyChime({ 523.25, 659.25, 783.99 })
-  cache.sell        = buyChime({ 392.00, 329.63 })
-  cache.error       = buyChime({ 196.00, 174.61 })
+  cache.buy         = buyChime({ 523.25, 659.25, 783.99 }, { reverbGain = 0.20, reverbTaps = { 1500, 3500 } })
+  cache.sell        = buyChime({ 392.00, 329.63 }, { reverbGain = 0.18, reverbTaps = { 1500, 3500 } })
+  cache.error       = buyChime({ 196.00, 174.61 }, { reverbGain = 0.18, reverbTaps = { 1500, 3500 } })
   cache.tabSwitch   = clickChime(1320)
-  cache.upgrade     = buyChime({ 523.25, 659.25, 783.99, 1046.50 })
+  cache.upgrade     = buyChime({ 523.25, 659.25, 783.99, 1046.50 }, { reverbGain = 0.22, reverbTaps = { 1800, 4200 } })
   cache.achievement = fanfare({ 659.25, 783.99, 987.77, 1318.51 }, 0.85, 0.32)
   cache.tierUp      = tierUp(523.25)
   cache.zap         = noiseBurst(0.07, 800, 2400, 0.25)
   cache.miner       = clickChime(440)
-  cache.power       = buyChime({ 261.63, 329.63, 392.00 })
+  cache.power       = buyChime({ 261.63, 329.63, 392.00 }, { reverbGain = 0.24, reverbTaps = { 1800, 4500 } })
   cache.footstep    = footStep()
   cache.padCharge   = padCharge()
   cache.canisterPump = pulsePump()
   cache.worldSwoosh = worldSwoosh()
   cache.peerJoin    = peerJoinChime()
-  cache.peerLeave   = buyChime({ 392.00, 311.13 })
+  cache.peerLeave   = buyChime({ 392.00, 311.13 }, { reverbGain = 0.24, reverbTaps = { 1800, 4500 } })
   cache.emoteWave   = emoteWave()
   cache.flagPlant   = flagPlant()
   cache.critStrike  = critStrike()
+  cache.halving     = halvingHit()
+  cache.surge       = surgeRoar()
 end
 
 local function pool(name, count)
@@ -349,9 +382,16 @@ end
 
 function M.click(intensity)
   intensity = intensity or 1
-  local pitch = 0.85 + love.math.random() * 0.3 + (intensity - 1) * 0.2
+  -- Cap pitch lift so high-streak clicks feel "powerful" not "shrill".
+  -- Excess intensity is routed to volume + tabSwitch overlay (not pitch).
+  local pitchBase = 0.85 + love.math.random() * 0.3
+  local pitchLift = math.min(0.15, (intensity - 1) * 0.10)
   local name = (love.math.random() < 0.5) and "click" or "click_alt"
-  play(name, { pitch = pitch, volume = 0.55 + intensity * 0.2 })
+  play(name, { pitch = pitchBase + pitchLift, volume = 0.55 + math.min(0.45, intensity * 0.18) })
+  -- High-streak: layer a sub-octave miner pulse for body
+  if intensity >= 1.5 then
+    play("miner", { pitch = 0.55 + love.math.random() * 0.10, volume = 0.18 })
+  end
 end
 
 function M.zap()
@@ -374,22 +414,65 @@ function M.peerJoin()  play("peerJoin",  { volume = 0.65 }) end
 function M.peerLeave() play("peerLeave", { volume = 0.4 }) end
 function M.emoteWave() play("emoteWave", { volume = 0.5 }) end
 function M.flagPlant() play("flagPlant", { volume = 0.55 }) end
-function M.crit()      play("critStrike",{ volume = 0.7 }) end
+function M.crit()      play("critStrike",{ volume = 0.75 }) end
+function M.halving()   play("halving",   { volume = 0.85 }) end
+function M.surge()     play("surge",     { volume = 0.80 }) end
+function M.block()     play("tierUp",    { volume = 0.85, pitch = 0.95 }) end
+function M.cosmetic()  play("achievement", { volume = 0.65, pitch = 1.10 }) end
+function M.tier()      play("tierUp",    { volume = 0.80 }) end
 
 local hum
+local humBaseVolume = 0.18
+local humDuckUntil = 0
+local humDuckFactor = 1.0
+
 function M.startHum()
   if hum then return end
   ensure()
   hum = love.audio.newSource(cache.coreHum, "static")
   hum:setLooping(true)
-  hum:setVolume(0.18)
+  hum:setVolume(humBaseVolume)
   hum:play()
 end
 
-function M.setHumIntensity(x)
+-- Hum dynamics: tanh-based curve so the drone keeps responding even at
+-- high z_per_sec instead of saturating around 1100 z/s.
+function M.setHumIntensity(zps)
   if not hum then return end
-  hum:setVolume(0.10 + math.min(0.5, x) * 0.45)
-  hum:setPitch(0.9 + math.min(0.6, x) * 0.4)
+  zps = math.max(0, zps or 0)
+  local x = math.log(1 + zps) / 22  -- wider denom; 22 saturates near 1e9
+  -- Smooth tanh-like roll-off
+  local k = x / (1 + math.abs(x))
+  humBaseVolume = 0.10 + math.max(0, math.min(0.30, k * 0.42))  -- cap 0.30
+  hum:setVolume(humBaseVolume * humDuckFactor)
+  hum:setPitch(0.85 + math.max(0, math.min(0.50, k * 0.55)))
+end
+
+-- Duck the hum briefly so transient SFX (block, halving, crit, surge,
+-- achievement) cut through. Called from M.block / M.halving / etc.
+function M.duckHum(amount, ms)
+  amount = amount or 0.4
+  ms = ms or 280
+  local t = love.timer.getTime()
+  humDuckUntil  = math.max(humDuckUntil, t + ms / 1000)
+  humDuckFactor = 1 - amount
+  if hum then hum:setVolume(humBaseVolume * humDuckFactor) end
+end
+
+function M.tickDuck()
+  if humDuckFactor < 1.0 and love.timer.getTime() > humDuckUntil then
+    humDuckFactor = 1.0
+    if hum then hum:setVolume(humBaseVolume) end
+  end
+end
+
+-- Subtle pitch sag during brownout (supply < demand).
+function M.setHumStress(stress)
+  if not hum then return end
+  -- stress in [0..1] = (demand-supply)/demand
+  stress = math.max(0, math.min(1, stress or 0))
+  local p = 0.85 - stress * 0.20
+  hum:setPitch(math.max(0.55, p))
 end
 
 function M.pause()

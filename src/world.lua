@@ -22,6 +22,10 @@ local M = {}
 local DESIGN_W, DESIGN_H = 1920, 1080
 local PLOT_W, PLOT_H = 24, 18
 local PAD_COOLDOWN = 0.65
+-- Bulk-buy on pads: holding the step keeps buying; longer holds buy more
+-- per tick. Thresholds are in seconds-on-pad.
+local PAD_HOLD_X10  = 1.5
+local PAD_HOLD_MAX  = 3.0
 
 -- Camera target (in screen space relative to plot origin)
 local CAMERA = { sx = DESIGN_W / 2, sy = 480 }
@@ -237,6 +241,14 @@ local function updatePeers(world, state, dt)
     else
       pc.char.label = (snap.name or "operator"):sub(1, 18)
     end
+    -- Propagate wave timer from network event onto the peer character
+    local realPeer = state.network.realPeers[snap.id]
+    if realPeer and realPeer.waveTimer and realPeer.waveTimer > 0 then
+      pc.char._waveTimer = realPeer.waveTimer
+      realPeer.waveTimer = math.max(0, realPeer.waveTimer - dt)
+    elseif pc.char._waveTimer and pc.char._waveTimer > 0 then
+      pc.char._waveTimer = math.max(0, pc.char._waveTimer - dt)
+    end
     -- Drift peer along a slow Lissajous
     pc.path_t = pc.path_t + dt * pc.path_speed
     if snap.status == "offline" then
@@ -340,22 +352,32 @@ function M.update(world, state, dt, callbacks)
     world.pad_cooldowns[i] = math.max(0, cd - dt)
   end
 
-  -- Pad step-on auto-buy. Track entering pad to play charge sound.
-  world._inPad = world._inPad or {}
+  -- Pad step-on auto-buy. Track entering pad to play charge sound +
+  -- accumulate hold time so longer holds buy ×10 / max.
+  world._inPad      = world._inPad or {}
+  world._padHold    = world._padHold or {}
   for i, pad in ipairs(world.pads) do
     local on = inPad(world.char, pad)
     if on and not world._inPad[i] then
-      world._inPad[i] = true
+      world._inPad[i]   = true
+      world._padHold[i] = 0
       Audio.padCharge()
     elseif not on and world._inPad[i] then
-      world._inPad[i] = nil
+      world._inPad[i]   = nil
+      world._padHold[i] = 0
+    end
+    if on then
+      world._padHold[i] = (world._padHold[i] or 0) + dt
     end
     if (world.pad_cooldowns[i] or 0) <= 0 and on then
       world.pad_cooldowns[i] = PAD_COOLDOWN
+      local qty = 1
+      if (world._padHold[i] or 0) > PAD_HOLD_MAX then qty = "max"
+      elseif (world._padHold[i] or 0) > PAD_HOLD_X10 then qty = 10 end
       if pad.kind == "miner" and callbacks and callbacks.onBuyMiner then
-        callbacks.onBuyMiner(pad.def)
+        callbacks.onBuyMiner(pad.def, qty)
       elseif pad.kind == "energy" and callbacks and callbacks.onBuyEnergy then
-        callbacks.onBuyEnergy(pad.def)
+        callbacks.onBuyEnergy(pad.def, qty)
       end
     end
   end
@@ -424,9 +446,12 @@ local function drawPad(pad, state, t)
   end
   Assets.drawBuyPad(sx, sy, color, t, { phase = pad.phase })
 
-  -- Floating tier + cost label
+  -- Floating tier + cost label (full name, not short code, so a Tab-first
+  -- player can navigate without prior shop knowledge).
   local font = love.graphics.getFont()
-  local nameLine = string.format("%s [T%d]", pad.def.short or pad.def.name, pad.def.tier)
+  local fullName = pad.def.name or pad.def.short or "?"
+  if #fullName > 22 then fullName = fullName:sub(1, 21) .. "…" end
+  local nameLine = string.format("%s [T%d]", fullName, pad.def.tier)
   local nameW = font:getWidth(nameLine)
   local labelY = sy - 38
 
@@ -451,6 +476,19 @@ local function drawPad(pad, state, t)
   local ownStr = string.format("OWNED %d", owned)
   local owW = font:getWidth(ownStr)
   love.graphics.print(ownStr, sx - owW/2, labelY + 44)
+
+  -- Hold-to-bulk hint
+  if pad._holdRef and pad._holdRef > 0.05 then
+    local hint
+    if pad._holdRef > PAD_HOLD_MAX then hint = "BUY MAX"
+    elseif pad._holdRef > PAD_HOLD_X10 then hint = "BUY ×10"
+    else hint = string.format("hold ×10 %.0f%%", math.min(100, (pad._holdRef / PAD_HOLD_X10) * 100)) end
+    local hw = font:getWidth(hint)
+    love.graphics.setColor(1, 0.95, 0.55, 0.95)
+    love.graphics.rectangle("fill", sx - hw/2 - 6, labelY + 62, hw + 12, 16, 3, 3)
+    love.graphics.setColor(0, 0, 0, 0.85)
+    love.graphics.print(hint, sx - hw/2, labelY + 63)
+  end
 end
 
 local function drawBuilt(world, state, t)
@@ -580,6 +618,7 @@ function M.draw(world, state, fonts, t)
   local entities = {}
 
   for i, pad in ipairs(world.pads) do
+    pad._holdRef = world._padHold and world._padHold[i] or 0
     table.insert(entities, { kind = "pad", pad = pad, depth = Iso.depth(pad.wx, pad.wy, 0) })
   end
   for _, c in ipairs(world.canisters) do

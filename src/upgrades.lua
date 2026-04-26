@@ -9,11 +9,14 @@ M.list = {
     cost = 100,         effect = { type = "click_add", amount = 5 } },
   { key = "click_2", name = "Tactile Feedback",   desc = "+50 Z per click.",
     cost = 8000,        effect = { type = "click_add", amount = 50 } },
-  { key = "click_3", name = "Resonant Touch",     desc = "Click yields 1% of Z/s.",
-    cost = 750000,      effect = { type = "click_pct", amount = 0.01 },
+  { key = "click_2b", name = "Inertial Drift",    desc = "+250 Z per click.",
+    cost = 60000,       effect = { type = "click_add", amount = 250 },
     requires = { "click_2" } },
-  { key = "click_4", name = "Hyperclick",         desc = "Click yields 5% of Z/s.",
-    cost = 200000000,   effect = { type = "click_pct", amount = 0.05 },
+  { key = "click_3", name = "Resonant Touch",     desc = "Click yields 0.5% of Z/s (streak-amplified).",
+    cost = 250000,      effect = { type = "click_pct", amount = 0.005 },
+    requires = { "click_2b" } },
+  { key = "click_4", name = "Hyperclick",         desc = "Click yields 2% of Z/s (streak-amplified).",
+    cost = 50000000,    effect = { type = "click_pct", amount = 0.02 },
     requires = { "click_3" } },
 
   -- Global mining multipliers

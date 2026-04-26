@@ -90,19 +90,37 @@ function M.draw(state, fonts, t)
   end
   drawProgressBar(ex, 70, barW, barH, pct, barColor, nil)
 
-  -- Section: time + miner count + status
-  local tx = 1560
+  -- Brownout overlay: when demand exceeds supply we show the throttle %
+  if state.energy_demand_raw and state.energy_supply and
+     state.energy_demand_raw > state.energy_supply and state.energy_supply > 0 then
+    local throttle = 1 - (state.energy_supply / state.energy_demand_raw)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(1, 0.55, 0.30, 0.95)
+    love.graphics.printf(
+      string.format("THROTTLING %d%%", math.floor(throttle * 100)),
+      ex, 70 + (barH - 12) / 2, barW, "center")
+  end
+
+  -- Section: hash rate + block height + uptime mini-chips
+  local tx = 1500
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.85, 0.95, 0.55, 1)
+  love.graphics.print("HASH", tx, 12)
   love.graphics.setFont(fonts.small)
+  love.graphics.setColor(1, 0.95, 0.65, 1)
+  love.graphics.print(fmt.hashRate(state.hashrate or 0), tx, 28)
+
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.85, 0.95, 0.55, 1)
+  love.graphics.print("BLOCK", tx, 50)
+  love.graphics.setFont(fonts.small)
+  love.graphics.setColor(1, 0.95, 0.65, 1)
+  love.graphics.print(string.format("#%d", state.block_height or 0), tx, 66)
+
+  love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.55, 0.85, 0.95, 1)
-  love.graphics.print("UPTIME", tx, 14)
-
-  love.graphics.setFont(fonts.medium)
-  love.graphics.setColor(0.85, 0.95, 1, 1)
-  love.graphics.print(fmt.time(state.play_time or 0), tx, 38)
-
-  love.graphics.setFont(fonts.small)
-  love.graphics.setColor(0.45, 0.75, 0.90, 1)
-  love.graphics.print(string.format("MINERS %d", state.miner_count or 0), tx, 70)
+  love.graphics.print(string.format("UPTIME %s  ·  MINERS %d",
+    fmt.time(state.play_time or 0), state.miner_count or 0), tx + 80, 12)
 
   -- Live mesh badge — global active operators + room online + 24h
   local Network = require "src.network"
@@ -135,8 +153,27 @@ function M.draw(state, fonts, t)
       activeGlobal, activeGlobal == 1 and "" or "s"), bx + 32, by + 24)
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.55, 0.75, 0.95, 0.85)
-    love.graphics.print(string.format("%d in your room  ·  %d in 24h  ·  %d all time",
-      activeRoom, last24h, allTime), bx + 32, by + 50)
+    love.graphics.print(string.format("%d in your room (you+%d)  ·  %d in 24h  ·  %d all time",
+      activeRoom + 1, activeRoom, last24h, allTime), bx + 32, by + 50)
+  end
+
+  -- TAB · WORLD pill — discoverability for the world toggle
+  do
+    local px, py = 360, 14
+    local pw, ph = 160, 32
+    local pulse = 0.55 + math.sin(t * 2.0) * 0.20
+    love.graphics.setColor(0.06, 0.16, 0.10, 0.92)
+    love.graphics.rectangle("fill", px, py, pw, ph, 6, 6)
+    love.graphics.setColor(0.30, 1.00, 0.55, pulse)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.rectangle("line", px, py, pw, ph, 6, 6)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.55, 1, 0.75, 1)
+    love.graphics.print("[ TAB ]", px + 10, py + 10)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(0.85, 1, 0.92, 1)
+    love.graphics.print(state.scene == "world" and "↩ CORE OPS" or "↹ ENTER WORLD", px + 50, py + 6)
   end
 
   -- Global SURGE banner — bold full-width strip when active

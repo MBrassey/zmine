@@ -564,11 +564,44 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
     love.graphics.printf("⛓ POOLED w/ " .. poolName, startX, lay + 56, cardW - 14, "right")
   end
 
+  -- Sort snaps so live operators surface first, demo placeholders last,
+  -- and offline-known peers stay accessible without burying the live ones.
+  local function statusRank(s)
+    if s.placeholder then return 4 end
+    if s.status == "online"  then return 0 end
+    if s.status == "afk"     then return 1 end
+    if s.status == "offline" then return 2 end
+    return 3
+  end
+  table.sort(snaps, function(a, b)
+    local ra, rb = statusRank(a), statusRank(b)
+    if ra ~= rb then return ra < rb end
+    return (a.z_lifetime or 0) > (b.z_lifetime or 0)
+  end)
+
+  -- Compute subhead injections: a thin header row whenever the section changes
+  local sections = {}
+  local lastRank
+  for i, s in ipairs(snaps) do
+    local r = statusRank(s)
+    if r ~= lastRank then
+      local label
+      if r == 0 then label = "ONLINE"
+      elseif r == 1 then label = "AFK"
+      elseif r == 2 then label = "OFFLINE — KNOWN"
+      elseif r == 3 then label = "OFFLINE"
+      else label = "DEMO PEERS" end
+      sections[#sections + 1] = { i = i, label = label }
+      lastRank = r
+    end
+  end
+
   -- Player list
   local listY = lay + headerH + 10
   local listH = lah - headerH - 10 - 220 -- leave 220 for ticker
   local rowH = 86
-  local total = #snaps * (rowH + 8)
+  local subH = 22
+  local total = #snaps * (rowH + 8) + #sections * subH
   local maxScroll = math.max(0, total - listH)
   if shop.scroll[shop.tab] > maxScroll then shop.scroll[shop.tab] = maxScroll end
   if shop.scroll[shop.tab] < 0 then shop.scroll[shop.tab] = 0 end
@@ -577,13 +610,33 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
   -- Scissor list (canvas-relative, design coords)
   love.graphics.setScissor(startX, listY, cardW, listH)
 
+  -- Walk snaps with subhead injections
+  local rowOffset = 0
+  local sectionIdx = 1
   for i, snap in ipairs(snaps) do
-    local rowY = listY + (i - 1) * (rowH + 8) - scroll
+    -- Render subhead between sections
+    if sections[sectionIdx] and sections[sectionIdx].i == i then
+      local headY = listY + rowOffset - scroll
+      love.graphics.setColor(0.06, 0.13, 0.10, 1)
+      love.graphics.rectangle("fill", startX, headY, cardW, subH, 4, 4)
+      love.graphics.setColor(0.30, 0.85, 0.55, 0.50)
+      love.graphics.rectangle("line", startX, headY, cardW, subH, 4, 4)
+      love.graphics.setFont(fonts.tiny)
+      love.graphics.setColor(0.55, 0.95, 0.75, 1)
+      love.graphics.print(sections[sectionIdx].label, startX + 10, headY + 5)
+      rowOffset = rowOffset + subH + 4
+      sectionIdx = sectionIdx + 1
+    end
+    local rowY = listY + rowOffset - scroll
+    rowOffset = rowOffset + rowH + 8
     if rowY + rowH > listY - rowH and rowY < listY + listH + rowH then
-      -- Background
-      love.graphics.setColor(0.04, 0.07, 0.06, 1)
+      -- Background — desaturate placeholder/demo rows
+      local bgA = snap.placeholder and 0.55 or 1.0
+      love.graphics.setColor(0.04, 0.07, 0.06, bgA)
       love.graphics.rectangle("fill", startX, rowY, cardW, rowH, 5, 5)
-      love.graphics.setColor(snap.avatar.color[1] * 0.6, snap.avatar.color[2] * 0.6, snap.avatar.color[3] * 0.6, 0.55)
+      local r, g, b = snap.avatar.color[1] * 0.6, snap.avatar.color[2] * 0.6, snap.avatar.color[3] * 0.6
+      if snap.placeholder then r, g, b = r * 0.7, g * 0.7, b * 0.7 end
+      love.graphics.setColor(r, g, b, snap.placeholder and 0.30 or 0.55)
       love.graphics.setLineWidth(1)
       love.graphics.rectangle("line", startX, rowY, cardW, rowH, 5, 5)
 
@@ -623,7 +676,9 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
       local by1 = rowY + 12
       local by2 = rowY + 46
 
-      -- Boost
+      -- Boost — show the cost on the button so the player knows what it does.
+      local boostCost = math.max(25, (state.z or 0) * 0.05)
+      local boostStr = "−" .. fmt.zeptons(boostCost)
       local hover1 = inRect(mx, my, b1x, by1, btnW, btnH)
       love.graphics.setColor(hover1 and 0.18 or 0.10, hover1 and 0.30 or 0.18, hover1 and 0.55 or 0.36, 1)
       love.graphics.rectangle("fill", b1x, by1, btnW, btnH, 4, 4)
@@ -631,7 +686,7 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
       love.graphics.rectangle("line", b1x, by1, btnW, btnH, 4, 4)
       love.graphics.setFont(fonts.tiny)
       love.graphics.setColor(0.85, 0.95, 1, 1)
-      love.graphics.printf("BOOST", b1x, by1 + 8, btnW, "center")
+      love.graphics.printf("BOOST " .. boostStr, b1x, by1 + 8, btnW, "center")
       table.insert(shop._buttons, { kind = "boost", target_id = snap.id, x = b1x, y = by1, w = btnW, h = btnH })
 
       -- Pool / Leave

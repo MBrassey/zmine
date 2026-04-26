@@ -315,16 +315,48 @@ local function checkAchievements(state)
   if upgradeCount >= 1 and not earned.first_upgrade then tryAchievement(state, "first_upgrade") end
   if upgradeCount >= #upgradesDb.list and not earned.all_upgrades then tryAchievement(state, "all_upgrades") end
 
-  -- Cosmetic unlocks (cheap to recheck each tick)
+  -- Cosmetic unlocks (cheap to recheck each tick) — celebrate on the
+  -- character (world view) AND the orb (core ops view).
   if state.cosmetics then
     local newCos = Cosmetics.checkUnlocks(state.cosmetics, state)
     for _, def in ipairs(newCos) do
       state._cosmeticToast = { name = def.name, color = def.color, t = love.timer.getTime() }
-      Audio.upgrade()
-      Fx.glow(string.format("#%02x%02x%02x",
-        math.floor(def.color[1]*255), math.floor(def.color[2]*255), math.floor(def.color[3]*255)),
-        0.5, 700)
+      Audio.cosmetic()
+      Audio.duckHum(0.40, 300)
+      local hex = string.format("#%02x%02x%02x",
+        math.floor(def.color[1]*255), math.floor(def.color[2]*255), math.floor(def.color[3]*255))
+      Fx.flash(hex, 280, 0.6)
+      Fx.glow(hex, 0.7, 800)
+      Fx.ripple(hex, 0.5, 0.5, 1400)
+      Fx.shatter(0.35, 600)
       M.message(state, "✦ Cosmetic: " .. def.name, def.color)
+      -- Burst on the character (world view)
+      if state.world and state.world.char then
+        local Iso = require "src.iso"
+        local sx, sy = Iso.toScreen(state.world.char.wx, state.world.char.wy, 0)
+        state.particles:burst({
+          x = sx, y = sy - 30, n = 50,
+          color = { def.color[1], def.color[2], def.color[3] },
+          minSpeed = 100, maxSpeed = 380,
+          life = 1.6, size = 4,
+          kind = "trail",
+        })
+      end
+      -- Burst on the orb (core ops view) too
+      local cx, cy = Facility.coreCenter()
+      state.particles:burst({
+        x = cx, y = cy, n = 50,
+        color = { def.color[1], def.color[2], def.color[3] },
+        minSpeed = 120, maxSpeed = 420,
+        life = 1.4, size = 4,
+        kind = "trail",
+      })
+      state.floats:emit({
+        x = cx - 80, y = cy - 110,
+        text = "✦ " .. def.name,
+        color = { def.color[1], def.color[2], def.color[3] },
+        size = 1.5, weight = "bold", life = 2.0, vy = -110,
+      })
     end
   end
 
@@ -431,6 +463,15 @@ function M.new(opts)
     if data.network.peer_memory then
       state.network.peer_memory = data.network.peer_memory
     end
+    if data.network._broadcastedNewTiers then
+      state.network._broadcastedNewTiers = data.network._broadcastedNewTiers
+    end
+    if data.network._broadcastedBlocks then
+      state.network._broadcastedBlocks = data.network._broadcastedBlocks
+    end
+    if data.network._broadcastedHalvings then
+      state.network._broadcastedHalvings = data.network._broadcastedHalvings
+    end
   end
 
   state.world          = World.new(state)
@@ -496,8 +537,8 @@ function M.update(state, dt, fonts)
   -- World scene: tick world (movement / pads / canisters / peers)
   if state.scene == "world" and state.world then
     World.update(state.world, state, dt, {
-      onBuyMiner  = function(def) M.buyMiner(state, def, 1) end,
-      onBuyEnergy = function(def) M.buyEnergy(state, def, 1) end,
+      onBuyMiner  = function(def, qty) M.buyMiner(state, def, qty or 1) end,
+      onBuyEnergy = function(def, qty) M.buyEnergy(state, def, qty or 1) end,
     })
   end
 
@@ -563,8 +604,10 @@ function M.update(state, dt, fonts)
           life = 1.4, size = 5,
           kind = "trail",
         })
-        Audio.upgrade()
-        Fx.flash("#ffd866", 200, 0.7)
+        Audio.crit()
+        Audio.duckHum(0.45, 250)
+        Fx.flash("#ffd866", 220, 0.75)
+        Fx.chroma(0.55, 200)
       end
     end
   end
@@ -606,10 +649,22 @@ function M.update(state, dt, fonts)
     M.findBlock(state)
   end
 
-  -- Auto-buy
+  -- Auto-buy: prefer the highest tier whose unit cost is ≤ 50% of current
+  -- balance (so it actually advances tiers instead of grinding T1).
+  -- Fallback to the cheapest affordable if nothing fits the budget gate.
   if love.timer.getTime() - state._lastAutobuy > AUTOBUY_INTERVAL then
     state._lastAutobuy = love.timer.getTime()
-    if state.mods.autobuy_miners then
+    local function pickBestMiner()
+      local budget = state.z * 0.50
+      local best, bestTier
+      for _, def in ipairs(minersDb.list) do
+        local c = minersDb.unitCost(def, state.miners[def.key] or 0)
+        if c <= budget then
+          if not best or def.tier > bestTier then best, bestTier = def, def.tier end
+        end
+      end
+      if best then return best end
+      -- Fallback: cheapest affordable
       local cheapest, cheapestCost
       for _, def in ipairs(minersDb.list) do
         local c = minersDb.unitCost(def, state.miners[def.key] or 0)
@@ -617,9 +672,18 @@ function M.update(state, dt, fonts)
           cheapest, cheapestCost = def, c
         end
       end
-      if cheapest then M.buyMiner(state, cheapest, 1, true) end
+      return cheapest
     end
-    if state.mods.autobuy_energy then
+    local function pickBestEnergy()
+      local budget = state.z * 0.50
+      local best, bestTier
+      for _, def in ipairs(energyDb.list) do
+        local c = energyDb.unitCost(def, state.energy[def.key] or 0)
+        if c <= budget then
+          if not best or def.tier > bestTier then best, bestTier = def, def.tier end
+        end
+      end
+      if best then return best end
       local cheapest, cheapestCost
       for _, def in ipairs(energyDb.list) do
         local c = energyDb.unitCost(def, state.energy[def.key] or 0)
@@ -627,7 +691,15 @@ function M.update(state, dt, fonts)
           cheapest, cheapestCost = def, c
         end
       end
-      if cheapest then M.buyEnergy(state, cheapest, 1, true) end
+      return cheapest
+    end
+    if state.mods.autobuy_miners then
+      local pick = pickBestMiner()
+      if pick then M.buyMiner(state, pick, 1, true) end
+    end
+    if state.mods.autobuy_energy then
+      local pick = pickBestEnergy()
+      if pick then M.buyEnergy(state, pick, 1, true) end
     end
   end
 
@@ -640,6 +712,25 @@ function M.update(state, dt, fonts)
     Fx.flash("#5db4ff", 220, 0.40)
     Fx.ripple("#5db4ff", 0.5, 0.5, 1100)
     M.message(state, "★ " .. (p.facility_name or "operator") .. " connected", { 0.55, 0.85, 1 })
+  end
+  -- Surge transition audio (rising edge only)
+  local surgeNow = Network.surgeRemaining(state.network) > 0
+  if surgeNow and not state._surgeAnnounced then
+    state._surgeAnnounced = true
+    Audio.surge()
+    Audio.duckHum(0.55, 500)
+    Fx.flash("#ff8a3a", 320, 0.65)
+    Fx.glow("#ff8a3a", 0.8, 1100)
+    Fx.ripple("#ff8a3a", 0.5, 0.5, 1500)
+    Fx.zoom(0.06, 500)
+    Fx.pulsate("#ff8a3a", 90, 0.30)
+    M.message(state, "⚡ GLOBAL SURGE — production +" ..
+      math.floor((state.surge_mult or 0.5) * 100) .. "%",
+      { 1, 0.55, 0.30 })
+  elseif not surgeNow and state._surgeAnnounced then
+    state._surgeAnnounced = false
+    Fx.pulsate("off")
+    M.message(state, "⚡ surge ended", { 0.85, 0.55, 0.30 })
   end
 
   -- Pool sharing economy
@@ -684,21 +775,26 @@ end
 -- Click handler
 -- ============================================================
 
-local function clickValue(state)
+-- Click value: base + click_add + click_pct × z_per_sec, with the
+-- click_pct component multiplied by the current click streak so active
+-- play scales meaningfully even when idle rate dwarfs base click.
+local function clickValue(state, streakMult)
   local base = 1 + (state.mods and state.mods.click_add or 0)
-  local pct = state.mods and state.mods.click_pct or 0
+  local pct  = state.mods and state.mods.click_pct or 0
+  local pctTerm = 0
   if pct > 0 then
-    base = base + state.z_per_sec * pct
+    pctTerm = state.z_per_sec * pct * (streakMult or 1)
   end
-  return base * (1 + (state.mods and state.mods.global_z or 0))
+  return (base + pctTerm) * (1 + (state.mods and state.mods.global_z or 0))
 end
 
 function M.clickCore(state, lx, ly, opts)
   opts = opts or {}
   if state.scene ~= "play" then return end
-  local v = clickValue(state)
 
-  -- Click streak: consecutive clicks within 1.5s scale value up to 2×.
+  -- Click streak: consecutive clicks within 1.5s scale value up to 2×
+  -- on the base, AND multiply the click_pct component (so a 20-streak
+  -- click at click_pct=5% adds 100% of z_per_sec — meaningful at scale).
   local now = love.timer.getTime()
   if (now - (state._lastClickTime or 0)) < 1.5 then
     state.click_streak = math.min(20, (state.click_streak or 0) + 1)
@@ -707,7 +803,11 @@ function M.clickCore(state, lx, ly, opts)
   end
   state._lastClickTime = now
   local streakMult = 1 + math.min(20, state.click_streak) * 0.05
-  v = v * streakMult
+  local v = clickValue(state, streakMult) * streakMult
+  -- Apply surge bonus to click value too
+  if state.surge_mult and state.surge_mult > 0 then
+    v = v * (1 + state.surge_mult)
+  end
 
   state.z = state.z + v
   state.z_lifetime = (state.z_lifetime or 0) + v
@@ -759,8 +859,39 @@ end
 -- Buy handlers
 -- ============================================================
 
+local function celebrateFirstOfTier(state, def, kind)
+  Audio.tier()
+  Audio.duckHum(0.50, 350)
+  local hex = string.format("#%02x%02x%02x",
+    math.floor(def.color[1]*255), math.floor(def.color[2]*255), math.floor(def.color[3]*255))
+  Fx.flash(hex, 280, 0.70)
+  Fx.shatter(0.30, 550)
+  Fx.zoom(0.04, 360)
+  Fx.glow(hex, 0.7, 800)
+  Fx.ripple(hex, 0.5, 0.5, 1300)
+  local cx, cy = Facility.coreCenter()
+  state.floats:emit({
+    x = cx - 120, y = cy - 100,
+    text = string.format("✦ TIER %d UNLOCKED", def.tier or 0),
+    color = def.color,
+    size = 1.7, weight = "bold", life = 2.4, vy = -110,
+  })
+  state.floats:emit({
+    x = cx - 90, y = cy - 70,
+    text = def.name,
+    color = def.color,
+    size = 1.2, weight = "bold", life = 2.4, vy = -90,
+  })
+  state.particles:burst({
+    x = cx, y = cy, n = 90,
+    color = def.color, minSpeed = 200, maxSpeed = 720,
+    life = 1.6, size = 5, kind = "trail",
+  })
+  M.message(state, string.format("✦ TIER %d UNLOCKED — %s", def.tier or 0, def.name), def.color)
+end
+
 function M.buyMiner(state, def, qty, silent)
-  if state.scene ~= "play" then return end
+  if state.scene ~= "play" and state.scene ~= "world" then return end
   local owned = state.miners[def.key] or 0
   local toBuy
   if qty == "max" then
@@ -770,7 +901,6 @@ function M.buyMiner(state, def, qty, silent)
   else
     toBuy = qty or 1
     local total = minersDb.totalCost(def, owned, toBuy)
-    -- Reduce qty if we can't afford full request
     while toBuy > 0 do
       total = minersDb.totalCost(def, owned, toBuy)
       if total <= state.z then break end
@@ -778,21 +908,26 @@ function M.buyMiner(state, def, qty, silent)
     end
     if toBuy <= 0 then if not silent then Audio.error_() end; return end
   end
+  local firstOfTier = (owned == 0)
   local total = minersDb.totalCost(def, owned, toBuy)
   state.z = state.z - total
   state.miners[def.key] = owned + toBuy
   if not silent then
-    Audio.buy()
-    Fx.glow("#33ff88", 0.45, 320)
-    Fx.ripple("#33ff88", 0.42, 0.5, 600)
+    if firstOfTier then
+      celebrateFirstOfTier(state, def, "miner")
+    else
+      Audio.buy()
+      local glowI = math.min(0.85, 0.45 + toBuy * 0.04)
+      Fx.glow("#33ff88", glowI, 320 + math.min(180, toBuy * 8))
+      Fx.ripple("#33ff88", 0.42, 0.5, 600)
+      if toBuy >= 5 then Fx.shake(0.18 + math.min(0.30, toBuy * 0.02), 200) end
+    end
   end
   M.message(state, string.format("+%d %s", toBuy, def.name), def.color)
-  -- Broadcast build to mesh
   Network.notify(state.network, "build", { kind = "miner", key = def.key, count = toBuy })
-  -- Particle puff at core
   local cx, cy = Facility.coreCenter()
   state.particles:burst({
-    x = cx, y = cy + 200, n = 18,
+    x = cx, y = cy + 200, n = 18 + toBuy * 4,
     color = def.color, minSpeed = 80, maxSpeed = 240,
     life = 1.0, size = 4, kind = "spark",
   })
@@ -800,7 +935,7 @@ function M.buyMiner(state, def, qty, silent)
 end
 
 function M.buyEnergy(state, def, qty, silent)
-  if state.scene ~= "play" then return end
+  if state.scene ~= "play" and state.scene ~= "world" then return end
   local owned = state.energy[def.key] or 0
   local toBuy
   if qty == "max" then
@@ -816,16 +951,22 @@ function M.buyEnergy(state, def, qty, silent)
     end
     if toBuy <= 0 then if not silent then Audio.error_() end; return end
   end
+  local firstOfTier = (owned == 0)
   local total = energyDb.totalCost(def, owned, toBuy)
   state.z = state.z - total
   state.energy[def.key] = owned + toBuy
   if not silent then
-    Audio.power()
-    Fx.glow("#ffd866", 0.45, 320)
-    Fx.pulse("#ffd866", 600)
+    if firstOfTier then
+      celebrateFirstOfTier(state, def, "energy")
+    else
+      Audio.power()
+      local glowI = math.min(0.85, 0.45 + toBuy * 0.04)
+      Fx.glow("#ffd866", glowI, 320 + math.min(180, toBuy * 8))
+      Fx.pulse("#ffd866", 600)
+      if toBuy >= 5 then Fx.shake(0.18 + math.min(0.30, toBuy * 0.02), 200) end
+    end
   end
   M.message(state, string.format("+%d %s", toBuy, def.name), def.color)
-  -- Broadcast build to mesh
   Network.notify(state.network, "build", { kind = "energy", key = def.key, count = toBuy })
   -- Particle puff
   local cx, cy = Facility.coreCenter()
@@ -892,20 +1033,21 @@ function M.boost(state, target_id)
 end
 
 function M.joinPool(state, target_id)
-  if state.scene ~= "play" then return end
+  if state.scene ~= "play" and state.scene ~= "world" then return end
   -- Cost: 1% of Z to join
   local cost = math.max(50, state.z * 0.01)
   if state.z < cost then Audio.error_(); return end
   state.z = state.z - cost
   Network.interact(state.network, target_id, "pool", cost)
-  Audio.upgrade()
-  Fx.glow("#88aaff", 0.5, 600)
+  Audio.peerJoin()
+  Fx.glow("#88aaff", 0.55, 700)
+  Fx.ripple("#88aaff", 0.5, 0.5, 900)
   M.message(state, "Pool sync established", { 0.55, 0.85, 0.95 })
 end
 
 function M.leavePool(state)
   Network.interact(state.network, nil, "leave_pool")
-  Audio.tab()
+  Audio.peerLeave()
   M.message(state, "Pool sync dissolved", { 0.85, 0.55, 0.55 })
 end
 
@@ -913,11 +1055,13 @@ function M.findBlock(state)
   state.block_height = (state.block_height or 0) + 1
   state.blocks_found = (state.blocks_found or 0) + 1
   state.last_block_at = state.play_time or 0
-  -- Halving cycle: base reward halves every HALVING_BLOCKS blocks
+  -- Halving applies to BOTH the floor reward and the rate-tied component
+  -- so the deflationary mechanic the UI advertises is real.
   local halvings = math.floor(state.blocks_found / HALVING_BLOCKS)
-  local baseReward = 50 * (0.5 ^ halvings)
-  local rateReward = state.z_per_sec * 30
-  local total = math.max(baseReward, baseReward + rateReward)
+  local halvingMult = 0.5 ^ halvings
+  local baseReward = 50 * halvingMult
+  local rateReward = state.z_per_sec * 30 * halvingMult
+  local total = baseReward + rateReward
   state.z = state.z + total
   state.z_lifetime = (state.z_lifetime or 0) + total
 
@@ -945,18 +1089,25 @@ function M.findBlock(state)
     life = 1.4, size = 5,
     kind = "trail",
   })
-  Audio.upgrade()
-  Fx.flash("#ffe066", 220, 0.55)
-  Fx.glow("#ffe066", 0.6, 700)
-  Fx.ripple("#ffe066", 0.42, 0.5, 1100)
+  -- Block has its own signature (tierUp chord, gold zoom, full-screen pulse)
+  Audio.block()
+  Audio.duckHum(0.55, 350)
+  Fx.flash("#ffe066", 240, 0.65)
+  Fx.glow("#ffe066", 0.7, 800)
+  Fx.ripple("#ffe066", 0.42, 0.5, 1300)
+  Fx.zoom(0.05, 380)
+  Fx.pulse("#ffe066", 1100)
 
   if halvings > (state._lastHalvingNotice or -1) then
     state._lastHalvingNotice = halvings
     if halvings > 0 then
       M.message(state, string.format("HALVING #%d — base reward → %d Z", halvings, math.floor(baseReward)),
         { 0.85, 0.65, 1 })
+      Audio.halving()
+      Audio.duckHum(0.65, 600)
       Fx.invert(180)
-      Fx.shatter(0.35, 600)
+      Fx.shatter(0.4, 700)
+      Fx.chroma(0.45, 280)
       Network.notify(state.network, "halving", { count = halvings, base = math.floor(baseReward) })
     end
   end
@@ -1186,6 +1337,25 @@ function M.keypressed(state, key)
     Intro.keypressed(state.intro, key)
     return
   end
+  -- Cross-scene keys (handled before scene-specific routing): save + pause
+  if key == "s" then
+    M.save(state)
+    Audio.tab()
+    return
+  end
+  if key == "p" then
+    state.paused = not state.paused
+    if state.paused then
+      Audio.pause()
+      Fx.calm("#33ff88", 0.30)
+      Fx.pulsate("off")
+    else
+      Audio.resume()
+      Fx.calm("#33ff88", 0.20)
+    end
+    return
+  end
+
   -- World view scoped keys
   if state.scene == "world" and state.world then
     if key == "tab" then
@@ -1209,20 +1379,7 @@ function M.keypressed(state, key)
     Fx.ripple("#33ff88", 0.5, 0.5, 1100)
     return
   end
-  if key == "p" then
-    state.paused = not state.paused
-    if state.paused then
-      Audio.pause()
-      Fx.calm("#33ff88", 0.30)
-      Fx.pulsate("off")
-    else
-      Audio.resume()
-      Fx.calm("#33ff88", 0.20)
-    end
-  elseif key == "s" then
-    M.save(state)
-    Audio.tab()
-  elseif key == "1" then
+  if key == "1" then
     Shop.setTab(state.shop, "miners"); Audio.tab()
   elseif key == "2" then
     Shop.setTab(state.shop, "energy"); Audio.tab()
@@ -1231,9 +1388,16 @@ function M.keypressed(state, key)
   elseif key == "4" then
     Shop.setTab(state.shop, "network"); Audio.tab()
   elseif key == "escape" then
-    -- Try clean exit
-    M.save(state)
-    love.event.quit()
+    -- Two-step quit: first Esc warns, second within 4 s saves + quits.
+    local now = love.timer.getTime()
+    if state._escAt and (now - state._escAt) < 4 then
+      M.save(state)
+      love.event.quit()
+    else
+      state._escAt = now
+      M.message(state, "Press Esc again within 4s to quit (save first)", { 1, 0.85, 0.55 })
+      Audio.error_()
+    end
   end
 end
 
