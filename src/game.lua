@@ -1381,7 +1381,7 @@ function M.draw(state, fonts, mx, my)
   state.floats:draw(fonts)
   love.graphics.setScissor()
 
-  Shop.draw(state.shop, state, fonts, t, mx, my)
+  protect(function() Shop.draw(state.shop, state, fonts, t, mx, my) end, "Shop.draw")
 
   drawBottomBar(state, fonts)
 
@@ -1499,11 +1499,22 @@ function M.keypressed(state, key)
     return
   end
 
+  -- Scene toggle: Tab moves browser focus out of the iframe (it's NOT
+  -- in the portal's preventDefault list — only space + arrow keys are),
+  -- which fires love.focus(false) and auto-pauses the game so the
+  -- screen ends up looking blank. Bind primarily to SPACE (which IS
+  -- preventDefaulted by the portal) and accept Tab/Q as aliases. The
+  -- focus-loss guard in M.focus also kills the auto-pause within 1 s
+  -- of any scene toggle so even Tab still works without the blank-
+  -- screen bug.
+  local isToggle = (key == "space" or key == "tab" or key == "q")
+
   -- World view scoped keys
   if state.scene == "world" and state.world then
-    if key == "tab" then
+    if isToggle then
       state.scene = "play"
       state._sawCoreOps = true
+      state._lastSceneToggleAt = love.timer.getTime()
       Audio.worldSwoosh()
       Fx.flash("#33ff88", 180, 0.30)
       return
@@ -1511,6 +1522,7 @@ function M.keypressed(state, key)
     World.keypressed(state.world, state, key, {
       toCore     = function()
         state.scene = "play"; state._sawCoreOps = true
+        state._lastSceneToggleAt = love.timer.getTime()
         Audio.worldSwoosh(); Fx.flash("#33ff88", 180, 0.30)
       end,
       onMessage  = function(msg, color) M.message(state, msg, color); Audio.tab() end,
@@ -1519,11 +1531,11 @@ function M.keypressed(state, key)
     })
     return
   end
-  if key == "tab" then
+  if isToggle then
     state.scene = "world"
+    state._lastSceneToggleAt = love.timer.getTime()
     Audio.worldSwoosh()
     Fx.flash("#33ff88", 180, 0.30)
-    Fx.ripple("#33ff88", 0.5, 0.5, 1100)
     return
   end
   if key == "1" then
@@ -1549,12 +1561,17 @@ function M.keypressed(state, key)
 end
 
 function M.focus(state, hasFocus)
-  if state.scene ~= "play" then return end
   if not hasFocus then
+    -- Focus-loss guard: if the player just toggled scenes (e.g. via
+    -- Tab, which the browser also uses for focus management on top of
+    -- our keypress handler), don't pause — they're still playing.
+    local sinceToggle = love.timer.getTime() - (state._lastSceneToggleAt or -10)
+    if sinceToggle < 1.0 then return end
     state.paused = true
     Audio.pause()
   else
-    -- Don't auto-resume; let user press P
+    state.paused = false
+    Audio.resume()
   end
 end
 

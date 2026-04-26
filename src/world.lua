@@ -28,12 +28,19 @@ local PAD_HOLD_X10  = 1.5
 local PAD_HOLD_MAX  = 3.0
 
 -- Camera origin (where world-coord (0,0) lands in screen space).
--- Derived from plot + tile dimensions so the diamond's center
--- projects to roughly canvas-center.
+-- The plot's iso footprint is (PLOT_W+PLOT_H)*TILE_W/2 = 2016 px wide,
+-- which exceeds the 1920 design canvas — a fixed camera always leaves
+-- one corner offscreen. Solution: the camera lerps toward the player
+-- character each frame so the player is always near canvas center.
+-- Initial value here just spawns somewhere reasonable; M.update
+-- recenters from frame 1.
 local CAMERA = {
-  sx = DESIGN_W / 2 - (PLOT_W - PLOT_H) * Iso.TILE_W * 0.25,
-  sy = 96 + (DESIGN_H - 96 - 64 - (PLOT_W + PLOT_H) * Iso.TILE_H * 0.5) / 2,
+  sx = DESIGN_W / 2,
+  sy = 96 + (DESIGN_H - 96 - 64) / 2,
 }
+
+local CAMERA_LERP = 5    -- frames-to-catch-up rate
+local CAMERA_VIEW_Y = 540 -- canvas y where the character should sit
 
 -- Particles + floats are drawn AFTER the world-camera transform pops,
 -- so anything emitted in world coords needs the camera offset baked in
@@ -114,10 +121,17 @@ end
 -- ============================================================
 
 function M.new(state)
+  -- Seed the camera to the spawn position so the first frame is
+  -- already centered, not lerping in from the previous frame's value.
+  local spawnX, spawnY = PLOT_W / 2, PLOT_H / 2
+  local _sx, _sy = Iso.toScreen(spawnX, spawnY, 0)
+  CAMERA.sx = DESIGN_W / 2 - _sx
+  CAMERA.sy = CAMERA_VIEW_Y - _sy
+
   local s = {
     char = Char.new({
-      wx = PLOT_W / 2,
-      wy = PLOT_H / 2,
+      wx = spawnX,
+      wy = spawnY,
       label = (state.facility_name or "OPERATOR"):sub(1, 18),
     }),
     plotBounds = { minX = 0.5, maxX = PLOT_W - 0.5, minY = 0.5, maxY = PLOT_H - 0.5 },
@@ -408,6 +422,17 @@ function M.update(world, state, dt, callbacks)
   -- Movement input
   local ax, ay = pollInput()
   Char.update(world.char, dt, ax, ay, world.plotBounds)
+
+  -- Camera follow: lerp toward the screen position that puts the
+  -- character at canvas center. The plot's iso footprint is wider
+  -- than the 1920 canvas, so a fixed camera always clips one corner
+  -- offscreen. Following the player keeps you centered on your plot.
+  local charSx, charSy = Iso.toScreen(world.char.wx, world.char.wy, 0)
+  local targetSx = DESIGN_W / 2 - charSx
+  local targetSy = CAMERA_VIEW_Y - charSy
+  local lerp = math.min(1, dt * CAMERA_LERP)
+  CAMERA.sx = CAMERA.sx + (targetSx - CAMERA.sx) * lerp
+  CAMERA.sy = CAMERA.sy + (targetSy - CAMERA.sy) * lerp
 
   -- Apply current cosmetics each frame so unlocks reflect immediately
   if state.cosmetics then

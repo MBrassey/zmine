@@ -99,17 +99,17 @@ if autotest then
     { 3.9,  function() pushKey("h") end },  -- toggle help
     { 4.0,  function() pushKey("h") end },  -- toggle back
     -- Tab to core ops, cycle every shop tab
-    { 4.5,  function() pushKey("tab") end },
+    { 4.5,  function() pushKey("space") end },
     { 5.0,  function() pushKey("1") end },
     { 5.3,  function() pushKey("2") end },
     { 5.6,  function() pushKey("3") end },
     { 5.9,  function() pushKey("4") end },
     -- Stress: hammer tab back and forth quickly
-    { 6.0,  function() pushKey("tab") end },
-    { 6.05, function() pushKey("tab") end },
-    { 6.10, function() pushKey("tab") end },
-    { 6.15, function() pushKey("tab") end },
-    { 6.20, function() pushKey("tab") end },
+    { 6.0,  function() pushKey("space") end },
+    { 6.05, function() pushKey("space") end },
+    { 6.10, function() pushKey("space") end },
+    { 6.15, function() pushKey("space") end },
+    { 6.20, function() pushKey("space") end },
     -- HUD scene-icon click (world-pill at x=360-438, y=14-50)
     { 6.30, function() pushClick(395, 32, 1) end },  -- click WORLD icon
     { 6.40, function() pushClick(478, 32, 1) end },  -- click OPS icon
@@ -120,7 +120,7 @@ if autotest then
     { 7.0,  function() pushKey("p") end },
     { 7.5,  function() pushKey("p") end },
     -- Tab back to world
-    { 8.0,  function() pushKey("tab") end },
+    { 8.0,  function() pushKey("space") end },
     -- Walk over a pad to trigger pad-step (south side, miner pads)
     { 8.5,  function() pushKey("s") end },
     { 9.0,  function() pushKey("s") end },

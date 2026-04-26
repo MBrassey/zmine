@@ -249,7 +249,7 @@ function M.draw(state, fonts, t)
     local label = (state.scene == "world") and "WORLD VIEW" or "OPS DASHBOARD"
     love.graphics.print(label, 360, 56)
     love.graphics.setColor(0.45, 0.65, 0.55, 0.75)
-    love.graphics.print("[TAB] toggle", 360, 70)
+    love.graphics.print("[SPACE] / [TAB] toggle", 360, 70)
   end
 
   -- Global SURGE banner — bold full-width strip when active
