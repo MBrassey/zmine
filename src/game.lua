@@ -435,7 +435,10 @@ function M.new(opts)
     ensureCompleteState(state)
   end
 
-  state.scene          = state.facility_name and "play" or "intro"
+  -- World view is the primary scene: that's where the player physically
+  -- places miners + energy and sees the facility grow. Core ops is the
+  -- secondary "Z STORE / dashboard" reachable via Tab.
+  state.scene          = state.facility_name and "world" or "intro"
   state.coreIntensity  = 1
   state.corePulse      = 0
   state.coreHold       = 0
@@ -481,13 +484,26 @@ function M.new(opts)
     fonts    = opts.fonts,
     onSubmit = function(name)
       state.facility_name = name
-      state.scene = "play"
+      state.scene = "world"
+      -- Grant a starter Solar + ASIC so mining begins as a passive loop
+      -- the moment the player walks onto the plot. Manual clicking is a
+      -- bonus, not the bootstrap.
+      if (state.energy.solar or 0) == 0 and (state.miners.asic_z1 or 0) == 0 then
+        state.energy.solar  = 1
+        state.miners.asic_z1 = 1
+      end
       tryAchievement(state, "name_facility")
       M.message(state, "Facility " .. name .. " online.", { 0.55, 1, 0.75 })
+      M.message(state, "Starter rig deployed. Mining is passive; click the core for a bonus.",
+        { 0.85, 1, 0.92 })
+      M.message(state, "Walk WASD onto a glowing pad to build more. [Tab] for the Z store.",
+        { 0.85, 0.95, 1 })
       Audio.power()
       Fx.glow("#33ff88", 0.7, 800)
       Fx.pulse("#33ff88", 700)
       Fx.mood("#0a1a12", 0.18)
+      Fx.ripple("#33ff88", 0.5, 0.5, 1300)
+      recompute(state, love.timer.getTime())
       M.save(state)
     end,
   })
@@ -1360,12 +1376,16 @@ function M.keypressed(state, key)
   if state.scene == "world" and state.world then
     if key == "tab" then
       state.scene = "play"
+      state._sawCoreOps = true
       Audio.worldSwoosh()
       Fx.flash("#33ff88", 180, 0.30)
       return
     end
     World.keypressed(state.world, state, key, {
-      toCore     = function() state.scene = "play"; Audio.worldSwoosh(); Fx.flash("#33ff88", 180, 0.30) end,
+      toCore     = function()
+        state.scene = "play"; state._sawCoreOps = true
+        Audio.worldSwoosh(); Fx.flash("#33ff88", 180, 0.30)
+      end,
       onMessage  = function(msg, color) M.message(state, msg, color); Audio.tab() end,
       onWave     = function() M.emoteWave(state) end,
       onFlag     = function() M.plantFlag(state) end,

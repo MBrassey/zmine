@@ -21,7 +21,7 @@ end
 function M.new()
   local s = {
     tab = "miners",
-    scroll = { miners = 0, energy = 0, upgrades = 0 },
+    scroll = { miners = 0, energy = 0, upgrades = 0, network = 0 },
     hoverKey = nil,
   }
   return s
@@ -603,6 +603,7 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
   local subH = 22
   local total = #snaps * (rowH + 8) + #sections * subH
   local maxScroll = math.max(0, total - listH)
+  shop.scroll[shop.tab] = shop.scroll[shop.tab] or 0
   if shop.scroll[shop.tab] > maxScroll then shop.scroll[shop.tab] = maxScroll end
   if shop.scroll[shop.tab] < 0 then shop.scroll[shop.tab] = 0 end
   local scroll = shop.scroll[shop.tab]

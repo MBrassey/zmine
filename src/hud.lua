@@ -101,60 +101,68 @@ function M.draw(state, fonts, t)
       ex, 70 + (barH - 12) / 2, barW, "center")
   end
 
-  -- Section: hash rate + block height + uptime mini-chips
-  local tx = 1500
+  -- Section: HASH and BLOCK chips, in their own column at right of energy.
+  -- Bands: HASH/BLOCK column 1480-1670 (190w), LIVE badge column 1690-1900 (210w).
+  local hx = 1480
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.85, 0.95, 0.55, 1)
-  love.graphics.print("HASH", tx, 12)
+  love.graphics.print("HASH", hx, 12)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 0.95, 0.65, 1)
-  love.graphics.print(fmt.hashRate(state.hashrate or 0), tx, 28)
+  love.graphics.print(fmt.hashRate(state.hashrate or 0), hx, 28)
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.85, 0.95, 0.55, 1)
-  love.graphics.print("BLOCK", tx, 50)
+  love.graphics.print("BLOCK", hx, 50)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 0.95, 0.65, 1)
-  love.graphics.print(string.format("#%d", state.block_height or 0), tx, 66)
+  love.graphics.print(string.format("#%d  ·  %s",
+    state.block_height or 0, fmt.time(state.play_time or 0)), hx, 66)
 
-  love.graphics.setFont(fonts.tiny)
-  love.graphics.setColor(0.55, 0.85, 0.95, 1)
-  love.graphics.print(string.format("UPTIME %s  ·  MINERS %d",
-    fmt.time(state.play_time or 0), state.miner_count or 0), tx + 80, 12)
-
-  -- Live mesh badge — global active operators + room online + 24h
+  -- Live mesh badge — slim, right-pinned, no overlap with HASH/BLOCK.
   local Network = require "src.network"
   local activeRoom   = state.network and Network.activePeerCount(state.network)   or 0
   local activeGlobal = state.network and Network.globalActiveUsers(state.network) or 0
   local last24h      = state.network and Network.globalLast24h(state.network)     or 0
-  local allTime      = state.network and Network.globalAllTimeUsers(state.network)or 0
-  local totalRooms   = state.network and Network.globalTotalRooms(state.network)  or 0
   local meshLive     = state.network and state.network.mode == "real"
-  if meshLive then
-    local bx, by = DESIGN_W - 410, 14
-    local bw, bh = 240, 76
+  do
+    local bw, bh = 210, 76
+    local bx, by = DESIGN_W - bw - 10, 10
     local pulse = 0.65 + math.sin(t * 4) * 0.35
-    love.graphics.setColor(0.04, 0.10, 0.20, 0.95)
-    love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
-    love.graphics.setColor(0.30, 0.85, 1.00, pulse)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", bx, by, bw, bh, 6, 6)
-    love.graphics.setLineWidth(1)
-    love.graphics.setColor(0.30, 1, 0.55, pulse)
-    love.graphics.circle("fill", bx + 18, by + 22, 7)
-    love.graphics.setColor(0.30, 1, 0.55, pulse * 0.4)
-    love.graphics.circle("fill", bx + 18, by + 22, 12)
-    love.graphics.setFont(fonts.tiny)
-    love.graphics.setColor(0.30, 1, 0.55, 1)
-    love.graphics.print("LIVE  ON  GAMES.BRASSEY.IO", bx + 32, by + 8)
-    love.graphics.setFont(fonts.medium)
-    love.graphics.setColor(0.85, 0.95, 1, 1)
-    love.graphics.print(string.format("%d  operator%s mining now",
-      activeGlobal, activeGlobal == 1 and "" or "s"), bx + 32, by + 24)
-    love.graphics.setFont(fonts.tiny)
-    love.graphics.setColor(0.55, 0.75, 0.95, 0.85)
-    love.graphics.print(string.format("%d in your room (you+%d)  ·  %d in 24h  ·  %d all time",
-      activeRoom + 1, activeRoom, last24h, allTime), bx + 32, by + 50)
+    if meshLive then
+      love.graphics.setColor(0.04, 0.10, 0.20, 0.95)
+      love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
+      love.graphics.setColor(0.30, 0.85, 1.00, pulse)
+      love.graphics.setLineWidth(2)
+      love.graphics.rectangle("line", bx, by, bw, bh, 6, 6)
+      love.graphics.setLineWidth(1)
+      love.graphics.setColor(0.30, 1, 0.55, pulse)
+      love.graphics.circle("fill", bx + 16, by + 22, 6)
+      love.graphics.setColor(0.30, 1, 0.55, pulse * 0.4)
+      love.graphics.circle("fill", bx + 16, by + 22, 11)
+      love.graphics.setFont(fonts.tiny)
+      love.graphics.setColor(0.30, 1, 0.55, 1)
+      love.graphics.print("LIVE", bx + 30, by + 6)
+      love.graphics.setColor(0.55, 0.95, 1, 0.85)
+      love.graphics.print("ON GAMES.BRASSEY.IO", bx + 60, by + 6)
+      love.graphics.setFont(fonts.bold)
+      love.graphics.setColor(0.85, 0.95, 1, 1)
+      love.graphics.printf(string.format("%d operator%s online",
+        activeGlobal, activeGlobal == 1 and "" or "s"), bx + 30, by + 22, bw - 36, "left")
+      love.graphics.setFont(fonts.tiny)
+      love.graphics.setColor(0.55, 0.75, 0.95, 0.95)
+      love.graphics.printf(string.format("you + %d in room  ·  %d /24h",
+        activeRoom, last24h), bx + 8, by + 54, bw - 16, "center")
+    else
+      -- Subtle solo-mode tag in the same slot so layout never reflows.
+      love.graphics.setColor(0.05, 0.08, 0.12, 0.85)
+      love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
+      love.graphics.setColor(0.45, 0.55, 0.65, 0.55)
+      love.graphics.rectangle("line", bx, by, bw, bh, 6, 6)
+      love.graphics.setFont(fonts.tiny)
+      love.graphics.setColor(0.55, 0.65, 0.75, 0.85)
+      love.graphics.printf("SOLO MODE  ·  no portal mesh", bx + 8, by + 30, bw - 16, "center")
+    end
   end
 
   -- TAB · WORLD pill — discoverability for the world toggle
@@ -198,12 +206,19 @@ function M.draw(state, fonts, t)
     love.graphics.print(txt, sx + sw/2 - tw/2, sy + 8)
   end
 
-  -- Pause indicator
+  -- Pause indicator — centered above all HUD chrome so it never clips
+  -- into the LIVE badge or any other widget.
   if state.paused then
     love.graphics.setFont(fonts.bold)
     local pulse = math.sin(t * 4) * 0.4 + 0.6
+    local label = "[ PAUSED ]"
+    local lw = fonts.bold:getWidth(label)
+    local px = DESIGN_W / 2 - lw / 2 - 10
+    local py = 0
+    love.graphics.setColor(0.20, 0.04, 0.02, 0.95)
+    love.graphics.rectangle("fill", px, py, lw + 20, 18, 0, 0)
     love.graphics.setColor(1, 0.55, 0.30, pulse)
-    love.graphics.print("[ PAUSED ]", DESIGN_W - 200, 14)
+    love.graphics.print(label, px + 10, py + 1)
   end
 end
 

@@ -399,9 +399,13 @@ function M.update(world, state, dt, callbacks)
   -- Peers
   updatePeers(world, state, dt)
 
-  -- Help banner timer
-  world.helpTimer = (world.helpTimer or 0) + dt
-  if world.helpTimer > 9 then world.helpVisible = false end
+  -- Help banner: stays visible while the contextual tutorial is active
+  -- (phases 1-3) so the new player is never lost. Once the loop is
+  -- established (phase 4) the player can hide with [H].
+  local phase = tutorialPhase(state)
+  if phase < 4 then
+    world.helpVisible = true
+  end
 end
 
 -- ============================================================
@@ -547,26 +551,81 @@ end
 -- Cosmetic toast and unlock notice (drawn in screen space)
 -- ============================================================
 
+-- Tutorial state: drives a contextual hint banner so a new player has
+-- a clear next step. Hides automatically once the loop is established.
+local function tutorialPhase(state)
+  -- Phase 1: never walked yet
+  if not state._tutPhase or state._tutPhase < 2 then
+    if state.world and state.world.char and (state.world.char.walkPhase or 0) > 0.4 then
+      state._tutPhase = 2
+    else
+      return 1
+    end
+  end
+  -- Phase 2: hasn't bought past the starter
+  local count = 0
+  for _, def in ipairs(minersDb.list) do count = count + (state.miners[def.key] or 0) end
+  for _, def in ipairs(energyDb.list) do count = count + (state.energy[def.key] or 0) end
+  if state._tutPhase == 2 and count <= 2 then return 2 end
+  if state._tutPhase < 3 then state._tutPhase = 3 end
+  -- Phase 3: hasn't visited the Z store yet
+  if state._tutPhase == 3 and not state._sawCoreOps then return 3 end
+  if state._tutPhase < 4 then state._tutPhase = 4 end
+  return 4
+end
+
 local function drawHelpBanner(world, state, fonts)
   local x = 40
   local y = DESIGN_H - 200
+  local phase = tutorialPhase(state)
+  if phase == 4 and not world.helpVisible then return end
+
   love.graphics.setColor(0.04, 0.07, 0.06, 0.92)
-  love.graphics.rectangle("fill", x, y, 720, 130, 8, 8)
+  love.graphics.rectangle("fill", x, y, 760, 134, 8, 8)
   love.graphics.setColor(0.30, 0.85, 0.55, 0.90)
   love.graphics.setLineWidth(2)
-  love.graphics.rectangle("line", x, y, 720, 130, 8, 8)
+  love.graphics.rectangle("line", x, y, 760, 134, 8, 8)
   love.graphics.setLineWidth(1)
 
   love.graphics.setFont(fonts.bold)
   love.graphics.setColor(0.55, 1, 0.75, 1)
-  love.graphics.print("FACILITY WORLD VIEW", x + 20, y + 12)
+  if phase == 1 then
+    love.graphics.print("STEP 1 / 3  —  WALK YOUR FACILITY", x + 20, y + 12)
+  elseif phase == 2 then
+    love.graphics.print("STEP 2 / 3  —  BUILD MORE", x + 20, y + 12)
+  elseif phase == 3 then
+    love.graphics.print("STEP 3 / 3  —  OPEN THE Z STORE", x + 20, y + 12)
+  else
+    love.graphics.print("FACILITY WORLD VIEW", x + 20, y + 12)
+  end
 
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.85, 0.95, 0.90, 1)
-  love.graphics.print("[WASD] walk  ·  step on a glowing pad to auto-buy that miner / energy", x + 20, y + 46)
-  love.graphics.print("[E] wave  ·  [F] plant flag  ·  [C/V/B/N/M] palette / trail / aura / halo / wings", x + 20, y + 70)
-  love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
-  love.graphics.print("[TAB] return to core operations  ·  [H] toggle this banner", x + 20, y + 96)
+  if phase == 1 then
+    love.graphics.print("Mining runs passively in the background — your starter solar panel is", x + 20, y + 42)
+    love.graphics.print("powering 1 ASIC miner right now. Walk around with [W A S D] to explore.", x + 20, y + 62)
+    love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
+    love.graphics.print("Click the core orb in core ops for a manual bonus on top of passive Z/s.", x + 20, y + 90)
+  elseif phase == 2 then
+    love.graphics.print("Walk onto any glowing pad to build that miner or energy plant. Hold longer", x + 20, y + 42)
+    love.graphics.print("for ×10 / MAX. Build more energy first when the grid throttles (red bar).", x + 20, y + 62)
+    love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
+    love.graphics.print("Energy on top, mining on bottom. Climb the tiers as your Z balance grows.", x + 20, y + 90)
+  elseif phase == 3 then
+    love.graphics.print("[TAB] swaps to CORE OPS — the dashboard / Z store. Buy upgrades, see your", x + 20, y + 42)
+    love.graphics.print("hash rate, find blocks, check the live mesh, and click the orb for a bonus.", x + 20, y + 62)
+    love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
+    love.graphics.print("Tab back here any time to keep building.", x + 20, y + 90)
+  else
+    love.graphics.print("[WASD] walk  ·  step on a glowing pad to build (hold for ×10 / MAX)", x + 20, y + 42)
+    love.graphics.print("[E] wave  ·  [F] flag  ·  [C/V/B/N/M] palette / trail / aura / halo / wings", x + 20, y + 62)
+    love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
+    love.graphics.print("[TAB] core ops & Z store  ·  [H] hide this banner  ·  [P] pause  ·  [S] save", x + 20, y + 90)
+  end
+
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.45, 0.65, 0.55, 0.85)
+  love.graphics.print("[H] hide / show this banner", x + 20, y + 114)
 end
 
 local function drawCosmeticToast(state, fonts, t)
