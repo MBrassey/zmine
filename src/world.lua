@@ -471,13 +471,17 @@ local function updatePeers(world, state, dt)
     elseif pc.char._waveTimer and pc.char._waveTimer > 0 then
       pc.char._waveTimer = math.max(0, pc.char._waveTimer - dt)
     end
-    -- Drift peer along a slow Lissajous. Mark asleep when offline so
-    -- the renderer dims the halo/label and floats Z's above their head
-    -- — otherwise an offline peer just stands frozen and reads as
-    -- "they're standing right there but ignoring me".
+    -- Drift peer along a slow Lissajous. The sleep pod is reserved for
+    -- peers we know are *off-roster* (only present in peer_memory) —
+    -- the snapshot tags those with offline_known=true. A roster-member
+    -- whose broadcasts went stale for 90s also gets snap.status =
+    -- "offline" (network.lua:761) but they're still in the room, so
+    -- they should remain standing/idle, not be put to bed.
     pc.path_t = pc.path_t + dt * pc.path_speed
-    pc.char.asleep = (snap.status == "offline")
-    if snap.status == "offline" then
+    pc.char.asleep = snap.offline_known == true
+    pc.char.online = (snap.status == "online")
+    pc.char.afk    = (snap.status == "afk")
+    if pc.char.asleep then
       pc.char.vx = 0; pc.char.vy = 0
     else
       -- Peers visit from outside the player's working zone. The

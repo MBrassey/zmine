@@ -503,7 +503,10 @@ function M.draw(c, t)
     love.graphics.circle("fill", bodyX, bodyY - 36, 30)
   end
 
-  -- Label above head
+  -- Label above head, with a status pip on the left edge:
+  --   green  = online (broadcasting recently)
+  --   amber  = afk    (in roster but quiet)
+  --   gray   = stale  (in roster but >90s silent)
   if c.label then
     local font = love.graphics.getFont()
     local lw = font:getWidth(c.label)
@@ -515,6 +518,23 @@ function M.draw(c, t)
     love.graphics.rectangle("line", bodyX - lw/2 - 5, labelY - 2, lw + 10, 16, 3, 3)
     love.graphics.setColor(0.95, 1, 0.92, 1)
     love.graphics.print(c.label, bodyX - lw/2, labelY)
+    if c.isPeer then
+      local pipX = bodyX - lw/2 - 11
+      local pipY = labelY + 6
+      local pulse = 0.55 + math.sin(t * 3.5) * 0.35
+      if c.online then
+        love.graphics.setColor(0.30, 1.00, 0.45, pulse)
+        love.graphics.circle("fill", pipX, pipY, 3)
+        love.graphics.setColor(0.30, 1.00, 0.45, pulse * 0.35)
+        love.graphics.circle("fill", pipX, pipY, 5.5)
+      elseif c.afk then
+        love.graphics.setColor(1.00, 0.75, 0.25, 0.85)
+        love.graphics.circle("fill", pipX, pipY, 2.5)
+      else
+        love.graphics.setColor(0.55, 0.60, 0.65, 0.75)
+        love.graphics.circle("fill", pipX, pipY, 2.5)
+      end
+    end
   end
 end
 
