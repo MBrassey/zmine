@@ -498,15 +498,27 @@ local function onNetEvent(state, evt)
       kind = "peer_wave", userId = evt.userId,
     })
   elseif evt.verb == "flag" then
-    -- Stash a flag for the world view to render
+    -- Stash a peer flag in the visitor ribbon (south of the player's
+    -- own pads/miners/energy/wallet). The peer's broadcast wx/wy is
+    -- coordinates on THEIR plot — meaningless on ours, and rendering
+    -- a peer flag right on top of one of OUR buy pads makes it look
+    -- like a peer's pad we can interact with. They live in the
+    -- visitor zone, period.
     state.received_flags = state.received_flags or {}
+    local seedNum = 0
+    for ch = 1, (evt.userId and #evt.userId or 1) do
+      seedNum = seedNum + (evt.userId and evt.userId:byte(ch) or 0)
+    end
+    -- Spread flags across the visitor ribbon's x-axis so multiple
+    -- inbound flags don't all land on the same tile.
+    local visitorX = 2 + (seedNum % 14)
+    local visitorY = 17.0 + ((seedNum % 3) * 0.2)
     table.insert(state.received_flags, {
       userId = evt.userId,
       name   = (payload.name or evt.handle or "operator"),
-      wx = tonumber(payload.wx), wy = tonumber(payload.wy),
+      wx = visitorX, wy = visitorY,
       receivedAt = state._t,
     })
-    -- Trim to last 24 flags
     while #state.received_flags > 24 do
       table.remove(state.received_flags, 1)
     end
