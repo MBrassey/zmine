@@ -58,25 +58,11 @@ function M.cameraOffset() return CAMERA.sx, CAMERA.sy end
 -- ============================================================
 
 local function buildPads()
-  -- Energy pads on the north strip (y small), miner pads on south (y large)
+  -- Layout (north → south): miner racks, miner pads, canisters,
+  -- energy pads, energy plants. Miners (the things consuming Z/s) live
+  -- at the top close to the operator's mental focus; energy (the
+  -- foundation feeding them) lines the bottom of the plot.
   local pads = {}
-
-  local energyList = energyDb.list
-  local nE = #energyList
-  for i, def in ipairs(energyList) do
-    local frac = (i - 0.5) / nE
-    local cx = 1 + frac * (PLOT_W - 2)
-    table.insert(pads, {
-      kind = "energy",
-      key  = def.key,
-      def  = def,
-      wx   = cx,
-      wy   = 4.0,
-      anchor_wx = cx,
-      anchor_wy = 1.5,   -- where built items render (north of pad)
-      phase = i * 0.31,
-    })
-  end
 
   local minerList = minersDb.list
   local nM = #minerList
@@ -88,10 +74,27 @@ local function buildPads()
       key  = def.key,
       def  = def,
       wx   = cx,
+      wy   = 4.0,
+      anchor_wx = cx,
+      anchor_wy = 1.5,    -- miner racks render NORTH of the pad
+      phase = i * 0.27,
+    })
+  end
+
+  local energyList = energyDb.list
+  local nE = #energyList
+  for i, def in ipairs(energyList) do
+    local frac = (i - 0.5) / nE
+    local cx = 1 + frac * (PLOT_W - 2)
+    table.insert(pads, {
+      kind = "energy",
+      key  = def.key,
+      def  = def,
+      wx   = cx,
       wy   = PLOT_H - 4,
       anchor_wx = cx,
-      anchor_wy = PLOT_H - 1.5,  -- south of pad
-      phase = i * 0.27,
+      anchor_wy = PLOT_H - 1.5,  -- energy plants render SOUTH of the pad
+      phase = i * 0.31,
     })
   end
 
@@ -99,9 +102,9 @@ local function buildPads()
 end
 
 local function canisterPositions()
-  -- Canisters sit just above the miner row (y = PLOT_H - 6) so they
-  -- visually anchor to the player's own rigs instead of floating in
-  -- the middle of the plot.
+  -- Canisters sit just south of the miner row (which is at y=4 now)
+  -- so the green-glow zepton flow visually anchors to the rigs that
+  -- are actually mining.
   local pos = {}
   local minerList = minersDb.list
   for i, def in ipairs(minerList) do
@@ -110,7 +113,7 @@ local function canisterPositions()
       key = def.key,
       def = def,
       wx  = cx,
-      wy  = PLOT_H - 6,
+      wy  = 6.5,
     })
   end
   return pos
@@ -288,29 +291,27 @@ local function updatePeers(world, state, dt)
     if snap.status == "offline" then
       pc.char.vx = 0; pc.char.vy = 0
     else
-      -- Peers visit from outside our facility. We park them in a
-      -- visitor ribbon along the very top of the plot (y=1..2) so they
-      -- don't wander through the player's own miners + canisters in
-      -- the middle. Real broadcast positions are mapped: we keep the
-      -- peer's broadcast x but clamp y to the visitor ribbon. That
-      -- keeps the "see them in real time" feel while making it
-      -- visually clear they're peers, not part of your plot.
+      -- Peers visit from outside the player's working zone. The
+      -- player's own area is now miner racks (y≈1.5) → miner pads
+      -- (y=4) → canisters (y=6.5) → energy pads (y=14) → energy
+      -- plants (y=16.5). We park visitors on a thin ribbon at the
+      -- VERY south edge (y≈17.0–17.4), past the energy plants, so
+      -- they don't walk through your equipment.
       local realPeer = state.network.realPeers[snap.id]
-      local seedNum = realPeer and realPeer.id and 0 or 0
+      local seedNum = 0
       for ch = 1, (snap.id and #snap.id or 1) do
         seedNum = seedNum + (snap.id and snap.id:byte(ch) or 0)
       end
-      local visitorY = 1.2 + ((seedNum % 3) * 0.4)  -- 1.2 / 1.6 / 2.0
+      local visitorY = 17.0 + ((seedNum % 3) * 0.2)  -- 17.0 / 17.2 / 17.4
       local cx, cy
       if realPeer and realPeer.posX and realPeer.posY then
         local age = (state.network._t or 0) - (realPeer.posUpdatedAt or 0)
         cx = realPeer.posX + (realPeer.posVX or 0) * math.min(1.5, age)
-        cy = visitorY + math.sin((realPeer.posUpdatedAt or 0) + age) * 0.3
+        cy = visitorY + math.sin((realPeer.posUpdatedAt or 0) + age) * 0.2
       else
         cx = 2 + (math.sin(pc.path_t * 0.4) * 0.5 + 0.5) * (PLOT_W - 4)
-        cy = visitorY + math.sin(pc.path_t * 0.7) * 0.3
+        cy = visitorY + math.sin(pc.path_t * 0.7) * 0.2
       end
-      -- Clamp inside plot bounds
       if cx < 1.5 then cx = 1.5 end
       if cx > PLOT_W - 1.5 then cx = PLOT_W - 1.5 end
       local dx = cx - pc.char.wx
