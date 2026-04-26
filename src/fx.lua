@@ -61,8 +61,10 @@ function M.pulse(color, ms)
 end
 
 function M.ripple(color, x, y, ms)
-  if not gate("ripple") then return end
-  emit("ripple", string.format("%s %.2f %.2f %d", color, x, y, ms))
+  -- Disabled: portal `ripple` renders as a full-viewport wave overlay
+  -- on top of the game canvas. The user prefers feedback to stay off
+  -- the canvas, so we no-op this FX entirely. Edge-only effects
+  -- (glow / vignette / mood / calm) remain in use.
 end
 
 function M.glow(color, intensity, ms)
