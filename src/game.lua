@@ -581,12 +581,16 @@ function M.update(state, dt, fonts)
     return
   end
 
-  -- World scene: tick world (movement / pads / canisters / peers)
+  -- World scene: tick world. Wrapped in pcall so one bad frame in
+  -- the iso pipeline doesn't crash the runtime.
   if state.scene == "world" and state.world then
-    World.update(state.world, state, dt, {
+    local ok, err = pcall(World.update, state.world, state, dt, {
       onBuyMiner  = function(def, qty) M.buyMiner(state, def, qty or 1) end,
       onBuyEnergy = function(def, qty) M.buyEnergy(state, def, qty or 1) end,
     })
+    if not ok then
+      io.stderr:write("[zmine] World.update: " .. tostring(err) .. "\n")
+    end
   end
 
   -- Recompute production every frame (cheap)
@@ -752,8 +756,13 @@ function M.update(state, dt, fonts)
     end
   end
 
-  -- Network mesh simulation
-  Network.update(state.network, dt, state)
+  -- Network mesh simulation — also pcall-wrapped so a malformed peer
+  -- payload (e.g. nil fields from a buggy slug snapshot) can't crash
+  -- the runtime.
+  local ok, err = pcall(Network.update, state.network, dt, state)
+  if not ok then
+    io.stderr:write("[zmine] Network.update: " .. tostring(err) .. "\n")
+  end
   -- Greet newly-arrived real peers with a chime + ripple + log
   local joined = Network.popJoined and Network.popJoined(state.network) or {}
   for _, p in ipairs(joined) do
@@ -1309,24 +1318,38 @@ local function drawPauseOverlay(fonts, t)
   love.graphics.print(sub, 1920 / 2 - sw / 2, 1080 / 2 + 30)
 end
 
+-- Wrap a renderer in pcall so a latent runtime error in one panel
+-- doesn't crash the whole game. The error is logged once to stderr
+-- (visible in the browser console) and a small RENDER-FAULT badge is
+-- shown so the player knows something went wrong.
+local function protect(fn, label)
+  local ok, err = pcall(fn)
+  if not ok then
+    if not protect._seen then protect._seen = {} end
+    if not protect._seen[label] then
+      protect._seen[label] = true
+      io.stderr:write("[zmine] render fault in " .. label .. ": " .. tostring(err) .. "\n")
+    end
+    return err
+  end
+end
+
 function M.draw(state, fonts, mx, my)
   local t = love.timer.getTime()
 
   if state.scene == "intro" then
     love.graphics.clear(0.01, 0.04, 0.02, 1)
-    Intro.draw(state.intro, t)
+    protect(function() Intro.draw(state.intro, t) end, "Intro.draw")
     state.particles:draw()
     state.floats:draw(fonts)
     return
   end
 
   if state.scene == "world" and state.world then
-    World.draw(state.world, state, fonts, t)
-    -- Particles and floats overlay (clipped to canvas)
+    protect(function() World.draw(state.world, state, fonts, t) end, "World.draw")
     state.particles:draw()
     state.floats:draw(fonts)
-    -- Top HUD always visible for context
-    Hud.draw(state, fonts, t)
+    protect(function() Hud.draw(state, fonts, t) end, "Hud.draw")
     drawBottomBar(state, fonts)
     if state.paused then drawPauseOverlay(fonts, t) end
     return
@@ -1334,21 +1357,21 @@ function M.draw(state, fonts, mx, my)
 
   love.graphics.clear(0.01, 0.03, 0.02, 1)
 
-  Hud.draw(state, fonts, t)
+  protect(function() Hud.draw(state, fonts, t) end, "Hud.draw")
 
-  Facility.draw(state, fonts, t, Shaders, getMood(state))
+  protect(function() Facility.draw(state, fonts, t, Shaders, getMood(state)) end, "Facility.draw")
 
-  -- Live mining console — real charts overlaid on the right edge of
-  -- the facility area so the operator feels like they are running an
-  -- actual mining floor. Width clamped tight so the console doesn't
-  -- swallow the energy-ring glyphs or the core's outer runes.
+  -- Live mining console (wrapped in pcall — a latent error in one
+  -- chart panel won't take down the whole ops view).
   if state.console then
     local area = Facility.area()
     local cw = 320
     local cx = area.x + area.w - cw - 12
     local cy = area.y + 200
     local ch = area.h - 290
-    Console.draw(state.console, state, fonts, t, cx, cy, cw, ch)
+    protect(function()
+      Console.draw(state.console, state, fonts, t, cx, cy, cw, ch)
+    end, "Console.draw")
   end
 
   -- Particles overlay clipped to facility area (canvas-relative, design coords)

@@ -939,8 +939,10 @@ end
 function M.drawCanister(sx, sy, fill, color, t, opts)
   opts = opts or {}
   fill = math.max(0, math.min(1, fill or 0))
-  local h = 56
-  local w = 22
+  -- Bigger canisters so they read as substantial industrial hardware,
+  -- matching the new mid-game / late-game tier visuals.
+  local h = 84
+  local w = 32
 
   -- Base
   love.graphics.setColor(0.18, 0.20, 0.24, 1)

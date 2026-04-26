@@ -169,31 +169,56 @@ function M.draw(state, fonts, t)
     end
   end
 
-  -- View-toggle icon buttons — clickable and keyboard-accessible.
-  -- Two pills side by side: WORLD (iso diamond glyph) and OPS (bar-chart
-  -- glyph). Active scene gets a solid fill; inactive is outlined.
-  -- Tab still toggles, but mouse users can click straight to either view.
+  -- View-toggle icon buttons — icon-only, square. WORLD (iso plot
+  -- glyph) and OPS (line-chart glyph). Active scene gets a solid fill
+  -- with bright border; inactive is outlined dimmer. Tab still
+  -- toggles; mouse users can click either icon from either scene.
   state._hudButtons = {}
   do
-    local function drawWorldIcon(cx, cy, color)
-      love.graphics.setColor(color[1], color[2], color[3], 1)
-      love.graphics.setLineWidth(1.5)
+    local function drawWorldIcon(cx, cy, color, intensity)
+      -- Iso plot diamond + tiny rack pip on the south corner
+      love.graphics.setColor(color[1], color[2], color[3], intensity)
+      love.graphics.setLineWidth(2)
       love.graphics.polygon("line",
-        cx, cy - 6, cx + 9, cy, cx, cy + 6, cx - 9, cy)
-      love.graphics.line(cx - 9, cy, cx + 9, cy)
-      love.graphics.line(cx, cy - 6, cx, cy + 6)
-      love.graphics.circle("fill", cx, cy, 1.5)
+        cx, cy - 9, cx + 14, cy, cx, cy + 9, cx - 14, cy)
+      -- Cross-axis grid
+      love.graphics.setColor(color[1], color[2], color[3], intensity * 0.55)
       love.graphics.setLineWidth(1)
+      love.graphics.line(cx - 7, cy - 4, cx + 7, cy + 4)
+      love.graphics.line(cx + 7, cy - 4, cx - 7, cy + 4)
+      -- Player pip in the middle
+      love.graphics.setColor(color[1], color[2], color[3], intensity)
+      love.graphics.circle("fill", cx, cy, 2)
+      -- Two visitor pips on the north edge
+      love.graphics.circle("fill", cx - 5, cy - 5, 1.2)
+      love.graphics.circle("fill", cx + 5, cy - 5, 1.2)
     end
-    local function drawOpsIcon(cx, cy, color)
-      love.graphics.setColor(color[1], color[2], color[3], 1)
-      love.graphics.rectangle("fill", cx - 8, cy + 2, 3, 4, 1, 1)
-      love.graphics.rectangle("fill", cx - 3, cy - 2, 3, 8, 1, 1)
-      love.graphics.rectangle("fill", cx + 2, cy - 6, 3, 12, 1, 1)
+    local function drawOpsIcon(cx, cy, color, intensity)
+      -- Line chart with rising slope + axes
+      love.graphics.setColor(color[1], color[2], color[3], intensity * 0.6)
+      love.graphics.setLineWidth(1.5)
+      love.graphics.line(cx - 11, cy + 8, cx + 11, cy + 8)  -- x axis
+      love.graphics.line(cx - 11, cy + 8, cx - 11, cy - 9)  -- y axis
+      -- Plot line segments
+      love.graphics.setColor(color[1], color[2], color[3], intensity)
+      love.graphics.setLineWidth(2)
+      local pts = {
+        cx - 11, cy + 5,
+        cx - 6,  cy + 2,
+        cx - 1,  cy - 2,
+        cx + 4,  cy - 5,
+        cx + 9,  cy - 8,
+      }
+      for i = 1, #pts - 2, 2 do
+        love.graphics.line(pts[i], pts[i+1], pts[i+2], pts[i+3])
+      end
+      -- Endpoint dot pulse
+      love.graphics.setColor(color[1], color[2], color[3], intensity)
+      love.graphics.circle("fill", cx + 9, cy - 8, 2)
     end
-    local function pill(px, py, label, isActive, drawIcon, sceneTarget)
-      local pw, ph = 78, 36
-      local pulse = 0.55 + math.sin(t * 2.0) * 0.20
+    local function pill(px, py, isActive, drawIcon, sceneTarget, tooltip)
+      local pw, ph = 48, 40
+      local pulse = 0.65 + math.sin(t * 2.0) * 0.25
       if isActive then
         love.graphics.setColor(0.10, 0.30, 0.18, 1)
         love.graphics.rectangle("fill", px, py, pw, ph, 6, 6)
@@ -207,20 +232,24 @@ function M.draw(state, fonts, t)
       end
       love.graphics.rectangle("line", px, py, pw, ph, 6, 6)
       love.graphics.setLineWidth(1)
-      drawIcon(px + 16, py + ph / 2, isActive and { 0.55, 1, 0.75 } or { 0.45, 0.75, 0.55 })
-      love.graphics.setFont(fonts.bold)
-      love.graphics.setColor(isActive and 1 or 0.7, isActive and 1 or 0.8, isActive and 0.85 or 0.7, 1)
-      love.graphics.print(label, px + 30, py + 8)
+      drawIcon(px + pw / 2, py + ph / 2,
+        isActive and { 0.55, 1, 0.80 } or { 0.40, 0.75, 0.55 },
+        isActive and 1.0 or 0.75)
       table.insert(state._hudButtons, {
         x = px, y = py, w = pw, h = ph, kind = "scene", scene = sceneTarget,
+        tooltip = tooltip,
       })
     end
-    pill(360, 14, "WORLD", state.scene == "world", drawWorldIcon, "world")
-    pill(444, 14, "OPS",   state.scene == "play",  drawOpsIcon,   "play")
-    -- Shared TAB hint underneath both pills
+    pill(360, 14, state.scene == "world", drawWorldIcon, "world", "WORLD VIEW")
+    pill(414, 14, state.scene == "play",  drawOpsIcon,   "play",  "OPS DASHBOARD")
+    -- Inline label beneath both icons identifying the active view, plus
+    -- the TAB-toggle hint
     love.graphics.setFont(fonts.tiny)
-    love.graphics.setColor(0.45, 0.65, 0.55, 0.85)
-    love.graphics.print("[ TAB ] toggle", 360, 56)
+    love.graphics.setColor(0.55, 0.95, 0.75, 0.95)
+    local label = (state.scene == "world") and "WORLD VIEW" or "OPS DASHBOARD"
+    love.graphics.print(label, 360, 56)
+    love.graphics.setColor(0.45, 0.65, 0.55, 0.75)
+    love.graphics.print("[TAB] toggle", 360, 70)
   end
 
   -- Global SURGE banner — bold full-width strip when active

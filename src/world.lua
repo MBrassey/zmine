@@ -92,7 +92,9 @@ local function buildPads()
 end
 
 local function canisterPositions()
-  -- Row of canisters along center horizontal line
+  -- Canisters sit just above the miner row (y = PLOT_H - 6) so they
+  -- visually anchor to the player's own rigs instead of floating in
+  -- the middle of the plot.
   local pos = {}
   local minerList = minersDb.list
   for i, def in ipairs(minerList) do
@@ -101,7 +103,7 @@ local function canisterPositions()
       key = def.key,
       def = def,
       wx  = cx,
-      wy  = PLOT_H / 2,
+      wy  = PLOT_H - 6,
     })
   end
   return pos
@@ -272,21 +274,31 @@ local function updatePeers(world, state, dt)
     if snap.status == "offline" then
       pc.char.vx = 0; pc.char.vy = 0
     else
-      -- If the peer broadcast a real position via [[LOVEWEB_NET]]send pos,
-      -- steer the character toward that target. Falls back to a
-      -- per-peer Lissajous wander if no pos data has arrived yet.
+      -- Peers visit from outside our facility. We park them in a
+      -- visitor ribbon along the very top of the plot (y=1..2) so they
+      -- don't wander through the player's own miners + canisters in
+      -- the middle. Real broadcast positions are mapped: we keep the
+      -- peer's broadcast x but clamp y to the visitor ribbon. That
+      -- keeps the "see them in real time" feel while making it
+      -- visually clear they're peers, not part of your plot.
       local realPeer = state.network.realPeers[snap.id]
+      local seedNum = realPeer and realPeer.id and 0 or 0
+      for ch = 1, (snap.id and #snap.id or 1) do
+        seedNum = seedNum + (snap.id and snap.id:byte(ch) or 0)
+      end
+      local visitorY = 1.2 + ((seedNum % 3) * 0.4)  -- 1.2 / 1.6 / 2.0
       local cx, cy
       if realPeer and realPeer.posX and realPeer.posY then
-        -- Dead-reckon with broadcast velocity to mask the ~1 Hz cadence.
         local age = (state.network._t or 0) - (realPeer.posUpdatedAt or 0)
         cx = realPeer.posX + (realPeer.posVX or 0) * math.min(1.5, age)
-        cy = realPeer.posY + (realPeer.posVY or 0) * math.min(1.5, age)
+        cy = visitorY + math.sin((realPeer.posUpdatedAt or 0) + age) * 0.3
       else
-        local phY = (pc.path_t * 0.31 + (pc.char.label and #pc.char.label or 1) * 0.27)
         cx = 2 + (math.sin(pc.path_t * 0.4) * 0.5 + 0.5) * (PLOT_W - 4)
-        cy = 5 + (math.sin(phY + 1.2) * 0.5 + 0.5) * (PLOT_H - 10)
+        cy = visitorY + math.sin(pc.path_t * 0.7) * 0.3
       end
+      -- Clamp inside plot bounds
+      if cx < 1.5 then cx = 1.5 end
+      if cx > PLOT_W - 1.5 then cx = PLOT_W - 1.5 end
       local dx = cx - pc.char.wx
       local dy = cy - pc.char.wy
       local d = math.sqrt(dx * dx + dy * dy)
@@ -360,29 +372,29 @@ local function tickCanisters(world, state, dt)
       local f = (world.canister_fills[c.key] or 0) + fillRate * dt
       if f >= 1.0 then
         f = 0
-        -- Pump SFX (rate-limited so heavy plays don't stack)
+        -- Combined pump rate limit: SFX + particles. Once every 1.2 s
+        -- across all canisters so a late-game player with many tiers
+        -- doesn't hear a machine-gun of pumps.
         world._lastPumpAt = world._lastPumpAt or 0
-        if love.timer.getTime() - world._lastPumpAt > 0.45 then
+        if love.timer.getTime() - world._lastPumpAt > 1.2 then
           world._lastPumpAt = love.timer.getTime()
           Audio.canisterPump()
-        end
-        -- Pump particles fly from canister position toward the player
-        -- character so the visual sink is something the operator is
-        -- already watching.
-        local sx, sy = M.toAbsScreen(c.wx, c.wy, 0)
-        local cx, cy = M.toAbsScreen(world.char.wx, world.char.wy, 0.4)
-        for k = 0, 12 do
-          state.particles:emit({
-            x = sx + (love.math.random() - 0.5) * 10,
-            y = sy - 30 + (love.math.random() - 0.5) * 10,
-            vx = (cx - sx) * 0.4 + (love.math.random() - 0.5) * 40,
-            vy = (cy - sy) * 0.4 + (love.math.random() - 0.5) * 40,
-            ax = 0, ay = 0,
-            life = 1.0, maxLife = 1.0,
-            color = { c.def.color[1], c.def.color[2], c.def.color[3] },
-            size = 4, drag = 1.2, kind = "trail",
-            rot = 0, vrot = 0,
-          })
+          -- Pump particles fly from canister to the player character.
+          local sx, sy = M.toAbsScreen(c.wx, c.wy, 0)
+          local cx, cy = M.toAbsScreen(world.char.wx, world.char.wy, 0.4)
+          for k = 0, 12 do
+            state.particles:emit({
+              x = sx + (love.math.random() - 0.5) * 10,
+              y = sy - 30 + (love.math.random() - 0.5) * 10,
+              vx = (cx - sx) * 0.4 + (love.math.random() - 0.5) * 40,
+              vy = (cy - sy) * 0.4 + (love.math.random() - 0.5) * 40,
+              ax = 0, ay = 0,
+              life = 1.0, maxLife = 1.0,
+              color = { c.def.color[1], c.def.color[2], c.def.color[3] },
+              size = 4, drag = 1.2, kind = "trail",
+              rot = 0, vrot = 0,
+            })
+          end
         end
       end
       world.canister_fills[c.key] = f
