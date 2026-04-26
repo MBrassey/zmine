@@ -173,17 +173,14 @@ local btcGlyphResolved
 local function btcGlyph()
   if btcGlyphResolved ~= nil then return btcGlyphResolved end
   local f = btcFont(20)
-  -- Preference order:
-  --   1. ₿ (U+20BF) — the actual Bitcoin Sign codepoint, but missing
-  --      from older bundled fonts.
-  --   2. B + ⃦ (U+0042 + U+20E6 combining double vertical stroke
-  --      overlay) — renders as a B with two vertical strokes through
-  --      it; supported by any font that handles basic combining marks.
-  --   3. Plain B + manual rectangle strokes (universal fallback).
+  -- Preference: U+20BF Bitcoin Sign if the bundled font has it,
+  -- otherwise plain "B" with manual rectangle stroke decorations
+  -- drawn on top in drawBTC. The earlier B+U+20E6 combining-overlay
+  -- attempt used Lua 5.3+'s \u{} escape, which Lua 5.1 (LÖVE web
+  -- runtime) does not parse and was being printed as the literal
+  -- text "Bu{20E6}".
   if f.hasGlyphs and f:hasGlyphs("₿") then
     btcGlyphResolved = "₿"
-  elseif f.hasGlyphs and f:hasGlyphs("B\u{20E6}") then
-    btcGlyphResolved = "B\u{20E6}"
   else
     btcGlyphResolved = "B"
   end

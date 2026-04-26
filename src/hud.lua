@@ -78,7 +78,9 @@ function M.draw(state, fonts, t)
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(1, 0.80, 0.35, 0.95)
-  love.graphics.print("+" .. fmt.rate(state.z_per_sec or 0) .. " /s",
+  -- fmt.rate already appends "/s"; using fmt.zeptons here to avoid
+  -- the double-suffix the previous build was producing.
+  love.graphics.print("+" .. fmt.zeptons(state.z_per_sec or 0) .. " /s",
                       zx + 38, 70)
 
   -- Section: ZEPTONS — fixed x band 890..1080, never collides with BTC.

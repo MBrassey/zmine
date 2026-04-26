@@ -81,7 +81,9 @@ local PLATFORMS = {
   },
   {
     id     = "endgame_spire",
-    minX = 8, maxX = 16, minY = PLOT_H + 1, maxY = PLOT_H + 8,
+    -- Pushed further south (+3 instead of +1) so the gold floor never
+    -- crowds the green main plot's south edge in iso projection.
+    minX = 8, maxX = 16, minY = PLOT_H + 3, maxY = PLOT_H + 10,
     elev   = 3,
     a      = { 0.18, 0.14, 0.04 },
     b      = { 0.14, 0.10, 0.02 },
@@ -91,6 +93,11 @@ local PLATFORMS = {
     unlock = function(state) return (state.miners.singularity_engine or 0) >= 1 end,
   },
 }
+
+-- Every platform has visible LAND THICKNESS — its side walls don't
+-- spring out of nowhere; they extend from z=elev down by this many
+-- units to make each plot read as solid earth, not a floating sheet.
+local LAND_DEPTH = 1.6
 
 -- Bridges: walkable strips connecting the main platform to each
 -- expansion. Each bridge has its own elevation slope (linear from one
@@ -108,9 +115,9 @@ local BRIDGES = {
   { from_id = "main", to_id = "sky_deck",
     minX = 11, maxX = 13, minY = -1, maxY = 0,
     elevA = 0, elevB = 2, axis = "y" },
-  -- SOUTH bridge
+  -- SOUTH bridge — three tiles long now that the spire is further south
   { from_id = "main", to_id = "endgame_spire",
-    minX = 11, maxX = 13, minY = PLOT_H, maxY = PLOT_H + 1,
+    minX = 11, maxX = 13, minY = PLOT_H, maxY = PLOT_H + 3,
     elevA = 0, elevB = 3, axis = "y" },
 }
 
@@ -712,17 +719,44 @@ end
 local function drawPlatform(p, state, t)
   local unlocked = isUnlocked(p, state)
   local elev = p.elev or 0
-  local dim = unlocked and 1.0 or 0.30  -- locked platforms are ghosted
+  local dim = unlocked and 1.0 or 0.30
 
-  -- Side walls (south + east faces are camera-visible in 2:1 iso)
-  if elev > 0 then
-    local sR, sG, sB = p.a[1] * 0.55, p.a[2] * 0.55, p.a[3] * 0.55
-    -- South wall (constant y = maxY)
-    drawSideWall(p, state, p.minX, p.maxY, p.maxX, p.maxY, elev,
-      sR, sG, sB, dim)
-    -- East wall (constant x = maxX) — slightly darker
-    drawSideWall(p, state, p.maxX, p.minY, p.maxX, p.maxY, elev,
-      sR * 0.75, sG * 0.75, sB * 0.75, dim)
+  -- Every platform has visible land thickness — side walls run from
+  -- z=elev (top floor) down to z=(elev - LAND_DEPTH). For the main
+  -- plot at elev=0, that produces a sub-zero base that reads as
+  -- ground-deep terrain instead of a floating sheet.
+  local topZ = elev
+  local botZ = elev - LAND_DEPTH
+
+  local sR, sG, sB = p.a[1] * 0.55, p.a[2] * 0.55, p.a[3] * 0.55
+  -- South wall (constant y = maxY) spans top→bot.
+  do
+    local p1x, p1y = Iso.toScreen(p.minX, p.maxY, botZ)
+    local p2x, p2y = Iso.toScreen(p.maxX, p.maxY, botZ)
+    local p3x, p3y = Iso.toScreen(p.maxX, p.maxY, topZ)
+    local p4x, p4y = Iso.toScreen(p.minX, p.maxY, topZ)
+    love.graphics.setColor(sR, sG, sB, dim)
+    love.graphics.polygon("fill", p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+    love.graphics.setColor(sR * 1.4, sG * 1.4, sB * 1.4, dim * 0.85)
+    love.graphics.setLineWidth(1)
+    love.graphics.polygon("line", p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+    -- Subtle horizontal stratum line about a third up the wall —
+    -- makes the rock face read like layered earth, not a flat slab.
+    local sxA, syA = Iso.toScreen(p.minX, p.maxY, botZ + LAND_DEPTH * 0.35)
+    local sxB, syB = Iso.toScreen(p.maxX, p.maxY, botZ + LAND_DEPTH * 0.35)
+    love.graphics.setColor(sR * 1.7, sG * 1.7, sB * 1.7, dim * 0.55)
+    love.graphics.line(sxA, syA, sxB, syB)
+  end
+  -- East wall (constant x = maxX) — slightly darker for shading.
+  do
+    local q1x, q1y = Iso.toScreen(p.maxX, p.minY, botZ)
+    local q2x, q2y = Iso.toScreen(p.maxX, p.maxY, botZ)
+    local q3x, q3y = Iso.toScreen(p.maxX, p.maxY, topZ)
+    local q4x, q4y = Iso.toScreen(p.maxX, p.minY, topZ)
+    love.graphics.setColor(sR * 0.70, sG * 0.70, sB * 0.70, dim)
+    love.graphics.polygon("fill", q1x, q1y, q2x, q2y, q3x, q3y, q4x, q4y)
+    love.graphics.setColor(sR * 1.0, sG * 1.0, sB * 1.0, dim * 0.85)
+    love.graphics.polygon("line", q1x, q1y, q2x, q2y, q3x, q3y, q4x, q4y)
   end
 
   -- Top floor — checkerboard tiles at the platform's elevation
