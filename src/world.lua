@@ -92,6 +92,56 @@ local PLATFORMS = {
   },
 }
 
+-- Bridges: walkable strips connecting the main platform to each
+-- expansion. Each bridge has its own elevation slope (linear from one
+-- end's elev to the other) so the character can rise / fall smoothly.
+local BRIDGES = {
+  -- WEST bridge: main (elev=0, x=0) ↔ monolith_yard (elev=1, x=-1)
+  { from_id = "main", to_id = "monolith_yard",
+    minX = -1, maxX = 0, minY = 8, maxY = 11,
+    elevA = 0, elevB = 1, axis = "x" },
+  -- EAST bridge
+  { from_id = "main", to_id = "fission_court",
+    minX = PLOT_W, maxX = PLOT_W + 1, minY = 8, maxY = 11,
+    elevA = 0, elevB = 1, axis = "x" },
+  -- NORTH bridge
+  { from_id = "main", to_id = "sky_deck",
+    minX = 11, maxX = 13, minY = -1, maxY = 0,
+    elevA = 0, elevB = 2, axis = "y" },
+  -- SOUTH bridge
+  { from_id = "main", to_id = "endgame_spire",
+    minX = 11, maxX = 13, minY = PLOT_H, maxY = PLOT_H + 1,
+    elevA = 0, elevB = 3, axis = "y" },
+}
+
+local function bridgeAt(wx, wy)
+  for _, b in ipairs(BRIDGES) do
+    if wx >= b.minX and wx < b.maxX and wy >= b.minY and wy < b.maxY then
+      return b
+    end
+  end
+  return nil
+end
+
+local function bridgeElev(b, wx, wy)
+  -- Linear interpolation from elevA → elevB across the bridge axis.
+  if b.axis == "x" then
+    local frac = (wx - b.minX) / math.max(0.001, b.maxX - b.minX)
+    return b.elevA + (b.elevB - b.elevA) * frac
+  else
+    local frac = (wy - b.minY) / math.max(0.001, b.maxY - b.minY)
+    return b.elevA + (b.elevB - b.elevA) * frac
+  end
+end
+
+-- Find a target's unlock status by id (for bridge gating).
+local function platById(id)
+  for _, p in ipairs(PLATFORMS) do
+    if p.id == id then return p end
+  end
+  return nil
+end
+
 local function platformAt(wx, wy)
   for _, p in ipairs(PLATFORMS) do
     if wx >= p.minX and wx < p.maxX and wy >= p.minY and wy < p.maxY then
@@ -104,8 +154,7 @@ end
 local function isUnlocked(p, state) return p.unlock(state) end
 
 local function computeBounds(state)
-  -- Union AABB of all unlocked platforms; the character is otherwise
-  -- free-form within that envelope.
+  -- Union AABB of all unlocked platforms PLUS their bridges.
   local minX, minY, maxX, maxY = 0.5, 0.5, PLOT_W - 0.5, PLOT_H - 0.5
   for _, p in ipairs(PLATFORMS) do
     if p.id ~= "main" and isUnlocked(p, state) then
@@ -116,6 +165,44 @@ local function computeBounds(state)
     end
   end
   return { minX = minX, minY = minY, maxX = maxX, maxY = maxY }
+end
+
+local function bridgeUnlocked(b, state)
+  local p = platById(b.to_id)
+  return p and isUnlocked(p, state)
+end
+
+-- Decorative natural props — drawn AT each platform's elevation. Each
+-- prop is { wx, wy, kind } where kind is "rock" / "crystal" / "shrub".
+-- Procedurally seeded from the platform id so they look hand-placed
+-- but stay stable across sessions.
+local function propsFor(plat)
+  if plat._props then return plat._props end
+  plat._props = {}
+  local rng = love.math.newRandomGenerator(0)
+  local seed = 0
+  for i = 1, #plat.id do seed = seed + plat.id:byte(i) end
+  rng:setSeed(seed)
+  -- Density: ~6 props per platform, fewer on the small main slabs
+  local n = (plat.id == "main") and 14 or 7
+  for i = 1, n do
+    local x = plat.minX + 0.5 + rng:random() * (plat.maxX - plat.minX - 1)
+    local y = plat.minY + 0.5 + rng:random() * (plat.maxY - plat.minY - 1)
+    -- Skip props near the centre of the main plot (where pads / canisters / wallet sit)
+    if plat.id == "main" then
+      local cx, cy = (plat.minX + plat.maxX) / 2, (plat.minY + plat.maxY) / 2
+      if math.abs(x - cx) < 4 and math.abs(y - cy) < 4 then
+        x = plat.minX + 1 + (rng:random() < 0.5 and 0 or plat.maxX - plat.minX - 2)
+      end
+    end
+    local kindRoll = rng:random()
+    local kind
+    if kindRoll < 0.4 then kind = "rock"
+    elseif kindRoll < 0.7 then kind = "shrub"
+    else kind = "crystal" end
+    table.insert(plat._props, { wx = x, wy = y, kind = kind, rng = rng:random() })
+  end
+  return plat._props
 end
 
 -- Camera origin (where world-coord (0,0) lands in screen space).
@@ -512,12 +599,16 @@ function M.update(world, state, dt, callbacks)
   -- Movement input
   local ax, ay = pollInput()
   Char.update(world.char, dt, ax, ay, world.plotBounds)
-  -- Track which platform the character is standing on; their wz follows
-  -- the platform elevation so they actually appear ON top of the
-  -- platform's surface, not floating below it.
+  -- Track which platform / bridge the character is standing on; wz
+  -- follows the elevation so they appear on top of the surface, with
+  -- bridges interpolating elev linearly so the climb is smooth.
   local plat = platformAt(world.char.wx, world.char.wy)
-  local targetWz = (plat and plat.elev) or 0
-  -- Smooth elevation transition (e.g. stepping onto a higher platform)
+  local br = (not plat) and bridgeAt(world.char.wx, world.char.wy) or nil
+  local targetWz = 0
+  if plat then targetWz = plat.elev or 0
+  elseif br and bridgeUnlocked(br, state) then
+    targetWz = bridgeElev(br, world.char.wx, world.char.wy)
+  end
   world.char.wz = world.char.wz or 0
   world.char.wz = world.char.wz + (targetWz - world.char.wz) * math.min(1, dt * 8)
 
@@ -668,9 +759,86 @@ local function drawPlatform(p, state, t)
   end
 end
 
+local function drawBridge(b, state, t)
+  if not bridgeUnlocked(b, state) then
+    -- Faint outline so the player sees there'll be a bridge here once
+    -- the destination unlocks; no walkable surface yet.
+    for y = b.minY, b.maxY - 1 do
+      for x = b.minX, b.maxX - 1 do
+        Iso.drawTileAt(x, y, 0,
+          0.05, 0.07, 0.05, 0.20,
+          { 0.30, 0.55, 0.40, 0.20 })
+      end
+    end
+    return
+  end
+  -- Walkable bridge: thin metal-grate strip at interpolated elevation
+  for y = b.minY, b.maxY - 1 do
+    for x = b.minX, b.maxX - 1 do
+      local cx = x + 0.5
+      local cy = y + 0.5
+      local e = bridgeElev(b, cx, cy)
+      local shade = ((x + y) % 2 == 0) and 0.18 or 0.14
+      Iso.drawTileAt(x, y, e,
+        shade, shade + 0.02, shade * 1.1, 1,
+        { 0.65, 0.70, 0.75, 0.45 })
+    end
+  end
+end
+
+local function drawProp(prop, plat, t)
+  local sx, sy = Iso.toScreen(prop.wx, prop.wy, plat.elev)
+  local color = plat.edge
+  if prop.kind == "rock" then
+    -- Faceted dark rock with a subtle highlight
+    love.graphics.setColor(0.18, 0.20, 0.24, 1)
+    love.graphics.polygon("fill",
+      sx - 8, sy + 4,  sx - 4, sy - 6,
+      sx + 5, sy - 4,  sx + 7, sy + 5,  sx + 0, sy + 8)
+    love.graphics.setColor(0.30, 0.32, 0.36, 0.85)
+    love.graphics.polygon("line",
+      sx - 8, sy + 4,  sx - 4, sy - 6,
+      sx + 5, sy - 4,  sx + 7, sy + 5,  sx + 0, sy + 8)
+    love.graphics.setColor(0.55, 0.60, 0.65, 0.50)
+    love.graphics.line(sx - 4, sy - 6, sx + 5, sy - 4)
+  elseif prop.kind == "shrub" then
+    -- Small clump of glowing shrubs in the platform accent color
+    for k = 0, 4 do
+      local rx = (k - 2) * 3 + math.sin(t * 0.5 + prop.rng + k) * 1
+      love.graphics.setColor(color[1] * 0.55, color[2] * 0.55, color[3] * 0.55, 0.95)
+      love.graphics.circle("fill", sx + rx, sy + 3, 4)
+      love.graphics.setColor(color[1], color[2], color[3], 0.85)
+      love.graphics.circle("fill", sx + rx, sy, 3)
+    end
+  elseif prop.kind == "crystal" then
+    -- Faceted crystal cluster — pulses with the platform accent color
+    local pulse = 0.65 + math.sin(t * 1.4 + prop.rng * 6) * 0.30
+    -- Glow halo
+    for r = 8, 0, -1 do
+      love.graphics.setColor(color[1], color[2], color[3], (1 - r/8) * 0.18 * pulse)
+      love.graphics.circle("fill", sx, sy - 4, r)
+    end
+    -- Main spike
+    love.graphics.setColor(color[1], color[2], color[3], 0.85)
+    love.graphics.polygon("fill",
+      sx - 4, sy + 4,  sx, sy - 14,
+      sx + 4, sy + 4,  sx, sy + 6)
+    love.graphics.setColor(1, 1, 1, 0.85)
+    love.graphics.polygon("line",
+      sx - 4, sy + 4,  sx, sy - 14,
+      sx + 4, sy + 4,  sx, sy + 6)
+    -- Side spike
+    love.graphics.setColor(color[1] * 0.85, color[2] * 0.85, color[3] * 0.85, 0.85)
+    love.graphics.polygon("fill",
+      sx + 3, sy + 5,  sx + 7, sy - 6,  sx + 9, sy + 4)
+    love.graphics.setColor(1, 1, 1, 0.65)
+    love.graphics.polygon("line",
+      sx + 3, sy + 5,  sx + 7, sy - 6,  sx + 9, sy + 4)
+  end
+end
+
 local function drawFloor(state, t)
-  -- Sort platforms by depth (lowest elevation first, then by world y)
-  -- so taller platforms render in front of shorter ones.
+  -- Sort platforms by depth so taller ones render in front.
   local sorted = {}
   for _, p in ipairs(PLATFORMS) do table.insert(sorted, p) end
   table.sort(sorted, function(a, b)
@@ -678,6 +846,16 @@ local function drawFloor(state, t)
     return a.minY < b.minY
   end)
   for _, p in ipairs(sorted) do drawPlatform(p, state, t) end
+  -- Bridges (drawn after platforms so their tile strips render on top
+  -- of the void between platforms).
+  for _, b in ipairs(BRIDGES) do drawBridge(b, state, t) end
+  -- Decorative props: rocks / shrubs / crystals, only on unlocked
+  -- platforms (locked plots stay barren until earned).
+  for _, p in ipairs(sorted) do
+    if isUnlocked(p, state) then
+      for _, prop in ipairs(propsFor(p)) do drawProp(prop, p, t) end
+    end
+  end
 end
 
 local function drawPad(pad, state, t)
