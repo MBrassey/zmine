@@ -58,10 +58,85 @@ function love.load()
   print("[ZMINE] facility runtime online")
 end
 
+-- ============================================================
+-- Deep test harness — set ZMINE_AUTOTEST=1 to drive the game through
+-- every scene + tab + interaction in sequence and quit, so smoke
+-- tests can verify there are no runtime errors anywhere in the loop.
+-- ============================================================
+local autotest = os.getenv("ZMINE_AUTOTEST") == "1"
+local autoT = 0
+local autoStep = 1
+local autoSteps
+
+local function pushKey(k)  love.event.push("keypressed", k, k, false) end
+local function pushClick(x, y, button)
+  love.event.push("mousepressed", x, y, button or 1, false, 1)
+  love.event.push("mousereleased", x, y, button or 1, false, 1)
+end
+
+if autotest then
+  autoSteps = {
+    -- {at_seconds, action}
+    { 0.5,  function()
+        if state and state.scene == "intro" then
+          for c in ("AUTOTEST"):gmatch(".") do
+            love.event.push("textinput", c)
+          end
+          pushKey("return")
+        end
+      end },
+    -- World view exercises
+    { 1.5,  function() pushKey("d") end },
+    { 1.7,  function() pushKey("d") end },
+    { 1.9,  function() pushKey("s") end },  -- save AND walk-down (scoped: cross-scene save handler)
+    { 2.5,  function() pushKey("c") end },  -- cycle palette
+    { 2.7,  function() pushKey("v") end },  -- cycle trail
+    { 2.9,  function() pushKey("b") end },  -- cycle aura
+    { 3.1,  function() pushKey("n") end },  -- cycle halo
+    { 3.3,  function() pushKey("m") end },  -- cycle wings
+    { 3.5,  function() pushKey("e") end },  -- wave
+    { 3.7,  function() pushKey("f") end },  -- flag
+    { 3.9,  function() pushKey("h") end },  -- toggle help
+    { 4.0,  function() pushKey("h") end },  -- toggle back
+    -- Tab to core ops, cycle every shop tab
+    { 4.5,  function() pushKey("tab") end },
+    { 5.0,  function() pushKey("1") end },
+    { 5.3,  function() pushKey("2") end },
+    { 5.6,  function() pushKey("3") end },
+    { 5.9,  function() pushKey("4") end },
+    -- Click the orb a bunch (streak)
+    { 6.5,  function() for i = 1, 12 do pushClick(615, 540, 1) end end },
+    -- Pause + resume
+    { 7.0,  function() pushKey("p") end },
+    { 7.5,  function() pushKey("p") end },
+    -- Tab back to world
+    { 8.0,  function() pushKey("tab") end },
+    -- Walk over a pad to trigger pad-step (south side, miner pads)
+    { 8.5,  function() pushKey("s") end },
+    { 9.0,  function() pushKey("s") end },
+    { 9.5,  function() pushKey("s") end },
+    -- Save + quit
+    { 10.0, function() pushKey("s") end },
+    { 10.5, function() pushKey("escape") end },  -- first esc warns
+    { 11.0, function() pushKey("escape") end },  -- second esc quits
+    { 12.0, function() love.event.quit() end },  -- safety hammer
+  }
+end
+
 function love.update(dt)
-  -- Cap dt to avoid catastrophic spikes
   if dt > 0.1 then dt = 0.1 end
   Game.update(state, dt, fonts)
+
+  if autotest then
+    autoT = autoT + dt
+    while autoSteps[autoStep] and autoT >= autoSteps[autoStep][1] do
+      local ok, err = pcall(autoSteps[autoStep][2])
+      if not ok then
+        io.stderr:write("[autotest] step " .. autoStep .. " error: " .. tostring(err) .. "\n")
+      end
+      autoStep = autoStep + 1
+    end
+  end
 end
 
 function love.draw()
