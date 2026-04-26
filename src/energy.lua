@@ -15,7 +15,7 @@ M.list = {
     tech     = "PV / monocrystalline Si",
     spec     = "22% conversion eff.",
     cf       = "CF ~25%",
-    produce  = 22,
+    produce  = 30,
     cost     = 50,
     growth   = 1.10,
     color    = { 1.00, 0.85, 0.30 },
@@ -31,7 +31,7 @@ M.list = {
     tech     = "Onshore HAWT / Class III",
     spec     = "Cut-in 3.5 m/s · Cut-out 25 m/s",
     cf       = "CF ~38%",
-    produce  = 70,
+    produce  = 90,
     cost     = 280,
     growth   = 1.10,
     color    = { 0.55, 0.85, 1.00 },
@@ -47,7 +47,7 @@ M.list = {
     tech     = "Reservoir Francis turbines",
     spec     = "240 m head · 410 m³/s",
     cf       = "CF ~95%",
-    produce  = 300,
+    produce  = 380,
     cost     = 1700,
     growth   = 1.11,
     color    = { 0.40, 0.75, 1.00 },
@@ -63,7 +63,7 @@ M.list = {
     tech     = "EGS / binary cycle",
     spec     = "220°C reservoir · ORC loop",
     cf       = "CF ~92%",
-    produce  = 950,
+    produce  = 1200,
     cost     = 11000,
     growth   = 1.12,
     color    = { 1.00, 0.55, 0.35 },
@@ -216,8 +216,14 @@ end
 function M.dynamicFactor(def, t, dayPhase)
   if not def.dynamic then return 1 end
   if def.dynamic == "day_cycle" then
+    -- Floor was 0.05 (5%) which made nighttime solar essentially zero
+    -- — fine when miner demand was tiny, but with the new energy
+    -- bumps even one rig browned the grid out at midnight. Realistic
+    -- PV systems pair with batteries / grid tie-in; reflect that with
+    -- a 0.40 floor so solar still meaningfully dips at night without
+    -- forcing an unconditional throttle.
     local s = math.sin(dayPhase * math.pi * 2 - math.pi / 2)
-    return math.max(0.05, 0.7 + s * 0.7)
+    return math.max(0.40, 0.7 + s * 0.7)
   elseif def.dynamic == "wind_noise" then
     local a = math.sin(t * 0.21) * 0.25
     local b = math.sin(t * 0.073 + 1.3) * 0.22

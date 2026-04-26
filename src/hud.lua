@@ -111,22 +111,28 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.95, 0.85, 0.45, 1)
   love.graphics.print("ENERGY  GRID", ex, 14)
 
-  -- Use / supply
+  -- Demand / supply — show RAW demand on the left, not the supply-capped
+  -- "energy_used", so buying more miners visibly grows the demand number
+  -- past the supply (the bar still pegs at 100%, but the readout
+  -- communicates how far underwater the grid is).
   love.graphics.setFont(fonts.medium)
   love.graphics.setColor(0.98, 0.95, 0.78, 1)
-  local energyStr = string.format("%s / %s", fmt.energy(state.energy_used), fmt.energy(state.energy_supply))
+  local demand = state.energy_demand_raw or state.energy_used or 0
+  local supply = state.energy_supply or 0
+  local energyStr = string.format("%s / %s", fmt.energy(demand), fmt.energy(supply))
   love.graphics.print(energyStr, ex, 38)
 
-  -- Bar
+  -- Bar — pct of demand vs supply, capped at 1.0 visually but tinted by
+  -- the actual ratio so deep-throttle reads obviously red.
   local barW, barH = 380, 18
-  local pct = (state.energy_supply > 0) and (state.energy_used / state.energy_supply) or 0
+  local pct = (supply > 0) and (demand / supply) or 0
   local barColor = { 0.30, 1.00, 0.55 }
-  if pct > 0.95 then
+  if pct > 1.0 then
     barColor = { 1.00, 0.40, 0.40 }
   elseif pct > 0.85 then
     barColor = { 1.00, 0.75, 0.30 }
   end
-  drawProgressBar(ex, 70, barW, barH, pct, barColor, nil)
+  drawProgressBar(ex, 70, barW, barH, math.min(1, pct), barColor, nil)
 
   -- Brownout overlay: when demand exceeds supply we show the throttle %
   if state.energy_demand_raw and state.energy_supply and
