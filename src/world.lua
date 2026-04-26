@@ -895,14 +895,14 @@ local function drawPad(pad, state, t)
   love.graphics.print(nameLine, sx - nameW/2, labelY)
 
   -- Cost with Z-coin centered under name plate
+  -- World pads sell miners + energy plants — both paid in BITCOIN.
   local costStr = fmt.zeptons(cost)
   local costW = font:getWidth(costStr)
   local coinSize = 8
   local totalW = coinSize * 2 + 6 + costW
   local costX = sx - totalW / 2
-  local costColor = affordable and { 0.55, 1, 0.75 } or { 0.55, 0.55, 0.55 }
-  Coin.drawWithLabel(costX, labelY + 26, coinSize, t, costStr, font, costColor,
-    { color = color })
+  local costColor = affordable and { 1, 0.85, 0.40 } or { 0.55, 0.50, 0.40 }
+  Coin.drawWithLabel(costX, labelY + 26, coinSize, t, costStr, font, costColor, { btc = true })
 
   love.graphics.setColor(0.55, 0.85, 0.65, 0.8)
   local ownStr = string.format("OWNED %d", owned)

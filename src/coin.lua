@@ -122,9 +122,14 @@ end
 
 -- Draw the coin and a numeric label to its right at the same vertical center.
 -- Returns the total drawn width (coin + gap + text).
+-- Pass opts.btc=true for the orange ₿ coin; default is the green Z.
 function M.drawWithLabel(sx, sy, size, t, value, font, color, opts)
   opts = opts or {}
-  M.draw(sx + size, sy, size, t, opts)
+  if opts.btc then
+    M.drawBTC(sx + size, sy, size, t, opts)
+  else
+    M.draw(sx + size, sy, size, t, opts)
+  end
   local label = (type(value) == "string") and value or fmt.zeptons(value)
   local f = font or love.graphics.getFont()
   love.graphics.setFont(f)

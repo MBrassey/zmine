@@ -210,8 +210,9 @@ local function drawMinerCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   local coinSize = 9
   local total = coinSize * 2 + 6 + cw
   local startCX = bx + btnW - 10 - total
-  local color = affordable and { 0.55, 1, 0.75 } or { 0.55, 0.55, 0.55 }
-  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color)
+  -- Miners are paid in BITCOIN, so show the orange ₿ coin next to the cost.
+  local color = affordable and { 1, 0.85, 0.40 } or { 0.55, 0.50, 0.40 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color, { btc = true })
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.45, 0.65, 0.55, 0.8)
@@ -308,16 +309,15 @@ local function drawEnergyCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   love.graphics.setColor(1, 0.80, 0.45, 1)
   love.graphics.print("BUILD", bx + 10, by + 6)
 
-  -- Cost with Z-coin
+  -- Energy plants are paid in BITCOIN, so show the orange ₿ coin.
   love.graphics.setFont(fonts.bold)
   local costStr = fmt.zeptons(unitCost)
   local cw = fonts.bold:getWidth(costStr)
   local coinSize = 9
   local total = coinSize * 2 + 6 + cw
   local startCX = bx + btnW - 10 - total
-  local color = affordable and { 1, 0.95, 0.55 } or { 0.55, 0.50, 0.40 }
-  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color,
-    { color = { 1, 0.85, 0.45 } })
+  local color = affordable and { 1, 0.85, 0.40 } or { 0.55, 0.50, 0.40 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color, { btc = true })
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.65, 0.55, 0.35, 0.8)
@@ -457,15 +457,15 @@ local function drawUpgradeCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   love.graphics.setColor(0.45, 0.65, 0.95, 1)
   love.graphics.print("UNLOCK", bx + 10, by + 6)
 
+  -- Research upgrades are paid in BITCOIN, so the orange ₿ coin again.
   love.graphics.setFont(fonts.bold)
   local costStr = fmt.zeptons(def.cost)
   local cw = fonts.bold:getWidth(costStr)
   local coinSize = 9
   local total = coinSize * 2 + 6 + cw
   local startCX = bx + btnW - 10 - total
-  local color = affordable and { 0.65, 0.85, 1 } or { 0.45, 0.50, 0.65 }
-  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color,
-    { color = { 0.45, 0.70, 1.00 } })
+  local color = affordable and { 1, 0.85, 0.40 } or { 0.55, 0.50, 0.40 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color, { btc = true })
 
   return { kind = "buy_upgrade", def = def, x = bx, y = by, w = btnW, h = btnH }
 end
