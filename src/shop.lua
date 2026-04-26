@@ -84,16 +84,12 @@ end
 local function scissorList()
   local lay = listAreaY()
   local lah = listAreaH()
-  -- Convert design coords to screen coords for scissor
-  local sw, sh = love.graphics.getDimensions()
-  local sc = math.min(sw / DESIGN_W, sh / DESIGN_H)
-  local dx = (sw - DESIGN_W * sc) * 0.5
-  local dy = (sh - DESIGN_H * sc) * 0.5
+  -- Scissor is canvas-relative when a canvas is bound, so design coords go in directly.
   love.graphics.setScissor(
-    math.floor((PANEL.x + 8) * sc + dx),
-    math.floor(lay * sc + dy),
-    math.ceil((PANEL.w - 16) * sc),
-    math.ceil(lah * sc)
+    PANEL.x + 8,
+    lay,
+    PANEL.w - 16,
+    lah
   )
 end
 
@@ -543,16 +539,8 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
   if shop.scroll[shop.tab] < 0 then shop.scroll[shop.tab] = 0 end
   local scroll = shop.scroll[shop.tab]
 
-  -- Scissor list
-  local sw, sh = love.graphics.getDimensions()
-  local sc = math.min(sw / DESIGN_W, sh / DESIGN_H)
-  local sdx = (sw - DESIGN_W * sc) * 0.5
-  local sdy = (sh - DESIGN_H * sc) * 0.5
-  love.graphics.setScissor(
-    math.floor((startX) * sc + sdx),
-    math.floor(listY * sc + sdy),
-    math.ceil(cardW * sc),
-    math.ceil(listH * sc))
+  -- Scissor list (canvas-relative, design coords)
+  love.graphics.setScissor(startX, listY, cardW, listH)
 
   for i, snap in ipairs(snaps) do
     local rowY = listY + (i - 1) * (rowH + 8) - scroll

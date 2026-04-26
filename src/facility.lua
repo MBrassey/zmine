@@ -403,16 +403,8 @@ function M.draw(state, fonts, t, shaders, mood)
   love.graphics.rectangle("line", AREA.x, AREA.y, AREA.w, AREA.h, 8, 8)
   love.graphics.setLineWidth(1)
 
-  -- Inner clip for content
-  local sw, sh = love.graphics.getDimensions()
-  local sc = math.min(sw / DESIGN_W, sh / DESIGN_H)
-  local dx = (sw - DESIGN_W * sc) * 0.5
-  local dy = (sh - DESIGN_H * sc) * 0.5
-  love.graphics.setScissor(
-    math.floor((AREA.x + 2) * sc + dx),
-    math.floor((AREA.y + 2) * sc + dy),
-    math.ceil((AREA.w - 4) * sc),
-    math.ceil((AREA.h - 4) * sc))
+  -- Inner clip for content (canvas-relative, design coords)
+  love.graphics.setScissor(AREA.x + 2, AREA.y + 2, AREA.w - 4, AREA.h - 4)
   drawBackground(t, shaders, mood)
   drawTelemetryStrip(state, fonts, t)
   drawEnergyRing(state, t, fonts)

@@ -946,17 +946,9 @@ function M.draw(state, fonts, mx, my)
 
   Facility.draw(state, fonts, t, Shaders, getMood(state))
 
-  -- Particles overlay clipped to facility area
-  local sw, sh = love.graphics.getDimensions()
-  local sc = math.min(sw / DESIGN_W, sh / DESIGN_H)
-  local dx = (sw - DESIGN_W * sc) * 0.5
-  local dy = (sh - DESIGN_H * sc) * 0.5
+  -- Particles overlay clipped to facility area (canvas-relative, design coords)
   local area = Facility.area()
-  love.graphics.setScissor(
-    math.floor(area.x * sc + dx),
-    math.floor(area.y * sc + dy),
-    math.ceil(area.w * sc),
-    math.ceil(area.h * sc))
+  love.graphics.setScissor(area.x, area.y, area.w, area.h)
   state.particles:draw()
   state.floats:draw(fonts)
   love.graphics.setScissor()
