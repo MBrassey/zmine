@@ -1371,6 +1371,26 @@ function M.mousepressed(state, lx, ly, button)
     Intro.mousepressed(state.intro, lx, ly, button)
     return
   end
+  -- HUD scene-toggle icons are click-routable from BOTH scenes.
+  if button == 1 and state._hudButtons then
+    for _, b in ipairs(state._hudButtons) do
+      if lx >= b.x and lx <= b.x + b.w and ly >= b.y and ly <= b.y + b.h then
+        if b.kind == "scene" and b.scene ~= state.scene then
+          if b.scene == "world" then
+            state.scene = "world"
+            Audio.worldSwoosh()
+            Fx.flash("#33ff88", 180, 0.30)
+          else
+            state.scene = "play"
+            state._sawCoreOps = true
+            Audio.worldSwoosh()
+            Fx.flash("#33ff88", 180, 0.30)
+          end
+        end
+        return
+      end
+    end
+  end
   if state.scene == "world" then
     return
   end

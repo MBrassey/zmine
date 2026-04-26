@@ -443,6 +443,18 @@ local function onNetEvent(state, evt)
     -- No-op; we already credit locally based on their stats.
   elseif evt.verb == "pool_leave" then
     -- Cosmetic
+  elseif evt.verb == "pos" then
+    -- Real-time peer position update. Stored on the realPeer record;
+    -- world.lua reads this and steers the peer character toward it.
+    local p = ensurePeer(state, evt)
+    if p then
+      p.posX     = tonumber(payload.wx) or p.posX
+      p.posY     = tonumber(payload.wy) or p.posY
+      p.posVX    = tonumber(payload.vx) or 0
+      p.posVY    = tonumber(payload.vy) or 0
+      p.posFacing = tonumber(payload.facing) or 0
+      p.posUpdatedAt = state._t
+    end
   elseif evt.verb == "wave" then
     -- Set a wave indicator on the peer character
     local p = state.realPeers[evt.userId or ""]
@@ -777,6 +789,21 @@ function M.update(state, dt, playerStats)
     if (state._t - state._lastSlugPresence) >= state._slugPresenceInterval then
       state._lastSlugPresence = state._t
       Net.slugPresence("z_lifetime", 12)
+    end
+    -- Real-time position broadcast at ~1 Hz so peers see where YOU are
+    -- on the plot in roughly real time. Combined with a portal SSE
+    -- delivery of ~750 ms when active this lands at 1.5–2 s effective
+    -- update cadence — adequate for "watch them walk" presence.
+    if (state._t - (state._lastPosBroadcast or -100)) >= 1.0 then
+      state._lastPosBroadcast = state._t
+      if playerStats.world and playerStats.world.char then
+        local c = playerStats.world.char
+        Net.send("pos", {
+          wx = c.wx, wy = c.wy,
+          vx = c.vx, vy = c.vy,
+          facing = c.facing,
+        })
+      end
     end
     -- Auto-mirror big events to slug
     maybeBroadcastBigEvents(state, playerStats)

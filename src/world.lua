@@ -270,21 +270,34 @@ local function updatePeers(world, state, dt)
     -- Drift peer along a slow Lissajous
     pc.path_t = pc.path_t + dt * pc.path_speed
     if snap.status == "offline" then
-      -- Standing still; subtle bob only
       pc.char.vx = 0; pc.char.vy = 0
     else
-      -- Per-peer phase break-up so they don't crowd in a 6-tile horizontal band
-      local phY = (pc.path_t * 0.31 + (pc.char.label and #pc.char.label or 1) * 0.27)
-      local cx = 2 + (math.sin(pc.path_t * 0.4) * 0.5 + 0.5) * (PLOT_W - 4)
-      local cy = 5 + (math.sin(phY + 1.2) * 0.5 + 0.5) * (PLOT_H - 10)
+      -- If the peer broadcast a real position via [[LOVEWEB_NET]]send pos,
+      -- steer the character toward that target. Falls back to a
+      -- per-peer Lissajous wander if no pos data has arrived yet.
+      local realPeer = state.network.realPeers[snap.id]
+      local cx, cy
+      if realPeer and realPeer.posX and realPeer.posY then
+        -- Dead-reckon with broadcast velocity to mask the ~1 Hz cadence.
+        local age = (state.network._t or 0) - (realPeer.posUpdatedAt or 0)
+        cx = realPeer.posX + (realPeer.posVX or 0) * math.min(1.5, age)
+        cy = realPeer.posY + (realPeer.posVY or 0) * math.min(1.5, age)
+      else
+        local phY = (pc.path_t * 0.31 + (pc.char.label and #pc.char.label or 1) * 0.27)
+        cx = 2 + (math.sin(pc.path_t * 0.4) * 0.5 + 0.5) * (PLOT_W - 4)
+        cy = 5 + (math.sin(phY + 1.2) * 0.5 + 0.5) * (PLOT_H - 10)
+      end
       local dx = cx - pc.char.wx
       local dy = cy - pc.char.wy
       local d = math.sqrt(dx * dx + dy * dy)
       if d > 0.05 then
-        pc.char.vx = dx / d * 1.6
-        pc.char.vy = dy / d * 1.6
-        pc.char.wx = pc.char.wx + pc.char.vx * dt
-        pc.char.wy = pc.char.wy + pc.char.vy * dt
+        -- Lerp toward the target position so movement feels smooth even
+        -- though pos events arrive every ~1 s.
+        local lerp = math.min(1, dt * 4)
+        pc.char.wx = pc.char.wx + dx * lerp
+        pc.char.wy = pc.char.wy + dy * lerp
+        pc.char.vx = dx
+        pc.char.vy = dy
         pc.char.walkPhase = (pc.char.walkPhase or 0) + dt
         if math.abs(pc.char.vx) > math.abs(pc.char.vy) then
           pc.char.facing = pc.char.vx > 0 and 1 or -1

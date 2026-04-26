@@ -169,24 +169,58 @@ function M.draw(state, fonts, t)
     end
   end
 
-  -- TAB · WORLD pill — discoverability for the world toggle.
+  -- View-toggle icon buttons — clickable and keyboard-accessible.
+  -- Two pills side by side: WORLD (iso diamond glyph) and OPS (bar-chart
+  -- glyph). Active scene gets a solid fill; inactive is outlined.
+  -- Tab still toggles, but mouse users can click straight to either view.
+  state._hudButtons = {}
   do
-    local px, py = 360, 14
-    local pw, ph = 160, 32
-    local pulse = 0.55 + math.sin(t * 2.0) * 0.20
-    love.graphics.setColor(0.06, 0.16, 0.10, 0.92)
-    love.graphics.rectangle("fill", px, py, pw, ph, 6, 6)
-    love.graphics.setColor(0.30, 1.00, 0.55, pulse)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", px, py, pw, ph, 6, 6)
-    love.graphics.setLineWidth(1)
+    local function drawWorldIcon(cx, cy, color)
+      love.graphics.setColor(color[1], color[2], color[3], 1)
+      love.graphics.setLineWidth(1.5)
+      love.graphics.polygon("line",
+        cx, cy - 6, cx + 9, cy, cx, cy + 6, cx - 9, cy)
+      love.graphics.line(cx - 9, cy, cx + 9, cy)
+      love.graphics.line(cx, cy - 6, cx, cy + 6)
+      love.graphics.circle("fill", cx, cy, 1.5)
+      love.graphics.setLineWidth(1)
+    end
+    local function drawOpsIcon(cx, cy, color)
+      love.graphics.setColor(color[1], color[2], color[3], 1)
+      love.graphics.rectangle("fill", cx - 8, cy + 2, 3, 4, 1, 1)
+      love.graphics.rectangle("fill", cx - 3, cy - 2, 3, 8, 1, 1)
+      love.graphics.rectangle("fill", cx + 2, cy - 6, 3, 12, 1, 1)
+    end
+    local function pill(px, py, label, isActive, drawIcon, sceneTarget)
+      local pw, ph = 78, 36
+      local pulse = 0.55 + math.sin(t * 2.0) * 0.20
+      if isActive then
+        love.graphics.setColor(0.10, 0.30, 0.18, 1)
+        love.graphics.rectangle("fill", px, py, pw, ph, 6, 6)
+        love.graphics.setColor(0.30, 1.00, 0.55, pulse)
+        love.graphics.setLineWidth(2)
+      else
+        love.graphics.setColor(0.06, 0.13, 0.10, 0.92)
+        love.graphics.rectangle("fill", px, py, pw, ph, 6, 6)
+        love.graphics.setColor(0.30, 0.85, 0.55, 0.55)
+        love.graphics.setLineWidth(1)
+      end
+      love.graphics.rectangle("line", px, py, pw, ph, 6, 6)
+      love.graphics.setLineWidth(1)
+      drawIcon(px + 16, py + ph / 2, isActive and { 0.55, 1, 0.75 } or { 0.45, 0.75, 0.55 })
+      love.graphics.setFont(fonts.bold)
+      love.graphics.setColor(isActive and 1 or 0.7, isActive and 1 or 0.8, isActive and 0.85 or 0.7, 1)
+      love.graphics.print(label, px + 30, py + 8)
+      table.insert(state._hudButtons, {
+        x = px, y = py, w = pw, h = ph, kind = "scene", scene = sceneTarget,
+      })
+    end
+    pill(360, 14, "WORLD", state.scene == "world", drawWorldIcon, "world")
+    pill(444, 14, "OPS",   state.scene == "play",  drawOpsIcon,   "play")
+    -- Shared TAB hint underneath both pills
     love.graphics.setFont(fonts.tiny)
-    love.graphics.setColor(0.55, 1, 0.75, 1)
-    love.graphics.print("[ TAB ]", px + 10, py + 10)
-    love.graphics.setFont(fonts.bold)
-    love.graphics.setColor(0.85, 1, 0.92, 1)
-    -- Drop the redundant arrow glyph; "[ TAB ]" already signals the toggle.
-    love.graphics.print(state.scene == "world" and "CORE OPS" or "ENTER WORLD", px + 60, py + 6)
+    love.graphics.setColor(0.45, 0.65, 0.55, 0.85)
+    love.graphics.print("[ TAB ] toggle", 360, 56)
   end
 
   -- Global SURGE banner — bold full-width strip when active

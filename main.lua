@@ -104,6 +104,16 @@ if autotest then
     { 5.3,  function() pushKey("2") end },
     { 5.6,  function() pushKey("3") end },
     { 5.9,  function() pushKey("4") end },
+    -- Stress: hammer tab back and forth quickly
+    { 6.0,  function() pushKey("tab") end },
+    { 6.05, function() pushKey("tab") end },
+    { 6.10, function() pushKey("tab") end },
+    { 6.15, function() pushKey("tab") end },
+    { 6.20, function() pushKey("tab") end },
+    -- HUD scene-icon click (world-pill at x=360-438, y=14-50)
+    { 6.30, function() pushClick(395, 32, 1) end },  -- click WORLD icon
+    { 6.40, function() pushClick(478, 32, 1) end },  -- click OPS icon
+    { 6.50, function() pushClick(395, 32, 1) end },  -- click WORLD again
     -- Click the orb a bunch (streak)
     { 6.5,  function() for i = 1, 12 do pushClick(615, 540, 1) end end },
     -- Pause + resume
