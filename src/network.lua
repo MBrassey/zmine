@@ -220,6 +220,8 @@ function M.new(facility_seed, playerStats)
     sim_players = {},
     -- Real layer mirrors
     realPeers = {},     -- userId -> { id, name, avatar, lastUpdate, stats... }
+    peer_memory = {},   -- persistent: userId -> last-known stats
+    received_flags = {},-- flags planted by peers in the world
     -- Shared
     events  = {},
     pool_with = nil,
@@ -240,6 +242,8 @@ function M.new(facility_seed, playerStats)
     -- Tick clock
     _t = 0,
     _lastTick = 0,
+    -- Active-presence chime gate
+    _seenIds = {},
   }
   for i = 1, PLAYER_COUNT_SIM do
     s.sim_players[i] = makeSimPlayer(facility_seed, i, 0)
@@ -437,6 +441,33 @@ local function onNetEvent(state, evt)
     -- No-op; we already credit locally based on their stats.
   elseif evt.verb == "pool_leave" then
     -- Cosmetic
+  elseif evt.verb == "wave" then
+    -- Set a wave indicator on the peer character
+    local p = state.realPeers[evt.userId or ""]
+    if p then
+      p.waveTimer = 1.4
+    end
+    state.events_pending = state.events_pending or {}
+    table.insert(state.events_pending, {
+      kind = "peer_wave", userId = evt.userId,
+    })
+  elseif evt.verb == "flag" then
+    -- Stash a flag for the world view to render
+    state.received_flags = state.received_flags or {}
+    table.insert(state.received_flags, {
+      userId = evt.userId,
+      name   = (payload.name or evt.handle or "operator"),
+      wx = tonumber(payload.wx), wy = tonumber(payload.wy),
+      receivedAt = state._t,
+    })
+    -- Trim to last 24 flags
+    while #state.received_flags > 24 do
+      table.remove(state.received_flags, 1)
+    end
+    local who = (evt.handle or payload.name or "operator")
+    pushEvent(state, "flag",
+      string.format("⚑  %s planted a flag", who),
+      { 1, 0.95, 0.55 })
   end
 end
 
@@ -529,6 +560,31 @@ function M.update(state, dt, playerStats)
   -- Apply roster (mark online/offline among realPeers)
   applyRosterPresence(state)
 
+  -- Detect newly-arrived peers (chime + presence broadcast hook)
+  state.newly_joined = {}
+  for uid, p in pairs(state.realPeers) do
+    if p.online and not state._seenIds[uid] then
+      state._seenIds[uid] = true
+      table.insert(state.newly_joined, p)
+    end
+  end
+
+  -- Persist last-known stats so offline peers stay visible
+  for uid, p in pairs(state.realPeers) do
+    state.peer_memory[uid] = {
+      userId      = uid,
+      facility_name = p.facility_name,
+      handle      = p.handle,
+      avatar      = p.avatar,
+      z_per_sec   = p.z_per_sec,
+      hashrate    = p.hashrate,
+      z_lifetime  = p.z_lifetime,
+      level       = p.level,
+      lastSeen    = (p.lastSeen or state._t),
+      lastOnlineFlag = p.online,
+    }
+  end
+
   -- Build snapshots
   local totalRate, totalHash = 0, 0
   state._snapshots = {}
@@ -588,6 +644,29 @@ function M.update(state, dt, playerStats)
   end
   state.totalRate     = totalRate
   state.totalHashRate = totalHash + (playerStats.hashrate or 0)
+
+  -- Augment snapshots with offline-but-known peers (real mode only)
+  if state.mode == "real" then
+    local present = {}
+    for _, s2 in ipairs(state._snapshots) do present[s2.id] = true end
+    for uid, mem in pairs(state.peer_memory) do
+      if not present[uid] then
+        table.insert(state._snapshots, {
+          id         = uid,
+          name       = mem.facility_name or mem.handle or "operator",
+          avatar     = mem.avatar,
+          z_per_sec  = 0,
+          hashrate   = 0,
+          z_lifetime = mem.z_lifetime or 0,
+          status     = "offline",
+          level      = mem.level or 0,
+          sim        = false,
+          offline_known = true,
+          lastSeen   = mem.lastSeen,
+        })
+      end
+    end
+  end
 
   -- Periodic stats broadcast (only meaningful in real mode but harmless)
   if state.mode == "real" then
@@ -666,6 +745,19 @@ function M.statusText(state)
     return "CONNECTING"
   end
   return "SOLO MODE  ·  SIM MESH"
+end
+
+function M.activePeerCount(state)
+  if state.mode ~= "real" then return 0 end
+  local n = 0
+  for _, p in pairs(state.realPeers) do if p.online then n = n + 1 end end
+  return n
+end
+
+function M.popJoined(state)
+  local out = state.newly_joined or {}
+  state.newly_joined = {}
+  return out
 end
 
 -- ============================================================

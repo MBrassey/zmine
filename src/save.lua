@@ -31,9 +31,11 @@ function M.save(state)
     block_height  = state.block_height,
     blocks_found  = state.blocks_found,
     last_block_at = state.last_block_at,
+    cosmetics     = state.cosmetics,
     network       = state.network and {
       pool_with    = state.network.pool_with,
       boostCount   = state.network.boostCount,
+      peer_memory  = state.network.peer_memory,
     } or nil,
     saved_at      = os.time(),
   }

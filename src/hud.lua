@@ -1,4 +1,5 @@
-local fmt = require "src.format"
+local fmt  = require "src.format"
+local Coin = require "src.coin"
 
 local M = {}
 
@@ -43,26 +44,28 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.85, 1, 0.92, 1)
   love.graphics.print(state.facility_name or "—", 30, 36)
 
-  -- Section: zepton balance (center-left)
+  -- Section: zepton balance (center-left) — with glowy Z-coin
   local zx = 540
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.35, 0.95, 0.55, 1)
   love.graphics.print("ZEPTONS", zx, 14)
 
+  -- Big animated coin
+  Coin.draw(zx + 26, 56, 22, t)
+
   love.graphics.setFont(fonts.giant)
-  -- Glow underlay
   local s = fmt.zeptons(state.z)
   love.graphics.setColor(0.35, 1, 0.6, 0.30)
-  love.graphics.print(s, zx + 2, 32 + 2)
+  love.graphics.print(s, zx + 60 + 2, 32 + 2)
   love.graphics.setColor(0.55, 1, 0.75, 1)
-  love.graphics.print(s, zx, 32)
+  love.graphics.print(s, zx + 60, 32)
 
   -- Rate beside balance
   love.graphics.setFont(fonts.medium)
   local rateStr = "+" .. fmt.rate(state.z_per_sec)
   local zw = fonts.giant:getWidth(s)
   love.graphics.setColor(0.50, 0.95, 0.65, 1)
-  love.graphics.print(rateStr, zx + zw + 18, 56)
+  love.graphics.print(rateStr, zx + 60 + zw + 18, 56)
 
   -- Section: energy
   local ex = 1100
@@ -100,6 +103,38 @@ function M.draw(state, fonts, t)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.45, 0.75, 0.90, 1)
   love.graphics.print(string.format("MINERS %d", state.miner_count or 0), tx, 70)
+
+  -- Active mesh peers badge — bright pulse if real users online
+  local activePeers = 0
+  local meshLive = false
+  if state.network then
+    if require("src.network").activePeerCount then
+      activePeers = require("src.network").activePeerCount(state.network)
+    end
+    meshLive = state.network.mode == "real"
+  end
+  if meshLive and activePeers > 0 then
+    local bx, by = DESIGN_W - 360, 14
+    local pulse = 0.65 + math.sin(t * 4) * 0.35
+    love.graphics.setColor(0.04, 0.10, 0.20, 0.95)
+    love.graphics.rectangle("fill", bx, by, 200, 60, 6, 6)
+    love.graphics.setColor(0.30, 0.85, 1.00, pulse)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", bx, by, 200, 60, 6, 6)
+    love.graphics.setLineWidth(1)
+    -- Pulsing dot
+    love.graphics.setColor(0.30, 1, 0.55, pulse)
+    love.graphics.circle("fill", bx + 18, by + 22, 7)
+    love.graphics.setColor(0.30, 1, 0.55, pulse * 0.4)
+    love.graphics.circle("fill", bx + 18, by + 22, 12)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.30, 1, 0.55, 1)
+    love.graphics.print("LIVE", bx + 32, by + 8)
+    love.graphics.setFont(fonts.medium)
+    love.graphics.setColor(0.85, 0.95, 1, 1)
+    love.graphics.print(string.format("%d operator%s online", activePeers, activePeers == 1 and "" or "s"),
+      bx + 32, by + 24)
+  end
 
   -- Pause indicator
   if state.paused then

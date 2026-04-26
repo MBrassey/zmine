@@ -14,6 +14,8 @@ local Intro      = require "src.intro"
 local Ach        = require "src.achievements"
 local Fx         = require "src.fx"
 local Network    = require "src.network"
+local World      = require "src.world"
+local Cosmetics  = require "src.cosmetics"
 
 local M = {}
 
@@ -47,6 +49,7 @@ local function freshState()
     block_height  = 0,
     blocks_found  = 0,
     last_block_at = 0,
+    cosmetics     = Cosmetics.fresh(),
   }
 end
 
@@ -62,6 +65,11 @@ local function ensureCompleteState(s)
   s.block_height   = s.block_height or 0
   s.blocks_found   = s.blocks_found or 0
   s.last_block_at  = s.last_block_at or 0
+  s.cosmetics      = s.cosmetics or Cosmetics.fresh()
+  s.cosmetics.equipped = s.cosmetics.equipped or {}
+  s.cosmetics.locked   = s.cosmetics.locked   or {}
+  s.cosmetics.earned   = s.cosmetics.earned   or {}
+  s.cosmetics.palette  = s.cosmetics.palette  or "default"
 end
 
 -- ============================================================
@@ -299,6 +307,19 @@ local function checkAchievements(state)
   if upgradeCount >= 1 and not earned.first_upgrade then tryAchievement(state, "first_upgrade") end
   if upgradeCount >= #upgradesDb.list and not earned.all_upgrades then tryAchievement(state, "all_upgrades") end
 
+  -- Cosmetic unlocks (cheap to recheck each tick)
+  if state.cosmetics then
+    local newCos = Cosmetics.checkUnlocks(state.cosmetics, state)
+    for _, def in ipairs(newCos) do
+      state._cosmeticToast = { name = def.name, color = def.color, t = love.timer.getTime() }
+      Audio.upgrade()
+      Fx.glow(string.format("#%02x%02x%02x",
+        math.floor(def.color[1]*255), math.floor(def.color[2]*255), math.floor(def.color[3]*255)),
+        0.5, 700)
+      M.message(state, "✦ Cosmetic: " .. def.name, def.color)
+    end
+  end
+
   -- Block / network related
   if (state.blocks_found or 0) >= 1 and not earned.first_block then tryAchievement(state, "first_block") end
   if (state.blocks_found or 0) >= 10 and not earned.ten_blocks then tryAchievement(state, "ten_blocks") end
@@ -370,6 +391,7 @@ function M.new(opts)
     state.block_height  = data.block_height or 0
     state.blocks_found  = data.blocks_found or 0
     state.last_block_at = data.last_block_at or 0
+    state.cosmetics     = data.cosmetics or Cosmetics.fresh()
     ensureCompleteState(state)
   end
 
@@ -398,7 +420,12 @@ function M.new(opts)
   if data and data.network then
     state.network.pool_with  = data.network.pool_with
     state.network.boostCount = data.network.boostCount or 0
+    if data.network.peer_memory then
+      state.network.peer_memory = data.network.peer_memory
+    end
   end
+
+  state.world          = World.new(state)
 
   -- Pre-populate intro scene
   state.intro = Intro.new({
@@ -456,6 +483,14 @@ function M.update(state, dt, fonts)
     state.particles:update(dt)
     state.floats:update(dt)
     return
+  end
+
+  -- World scene: tick world (movement / pads / canisters / peers)
+  if state.scene == "world" and state.world then
+    World.update(state.world, state, dt, {
+      onBuyMiner  = function(def) M.buyMiner(state, def, 1) end,
+      onBuyEnergy = function(def) M.buyEnergy(state, def, 1) end,
+    })
   end
 
   -- Recompute production every frame (cheap)
@@ -590,6 +625,14 @@ function M.update(state, dt, fonts)
 
   -- Network mesh simulation
   Network.update(state.network, dt, state)
+  -- Greet newly-arrived real peers with a chime + ripple + log
+  local joined = Network.popJoined and Network.popJoined(state.network) or {}
+  for _, p in ipairs(joined) do
+    Audio.peerJoin()
+    Fx.flash("#5db4ff", 220, 0.40)
+    Fx.ripple("#5db4ff", 0.5, 0.5, 1100)
+    M.message(state, "★ " .. (p.facility_name or "operator") .. " connected", { 0.55, 0.85, 1 })
+  end
 
   -- Pool sharing economy
   if state.network.pool_with then
@@ -636,6 +679,18 @@ function M.clickCore(state, lx, ly, opts)
   opts = opts or {}
   if state.scene ~= "play" then return end
   local v = clickValue(state)
+
+  -- Click streak: consecutive clicks within 1.5s scale value up to 2×.
+  local now = love.timer.getTime()
+  if (now - (state._lastClickTime or 0)) < 1.5 then
+    state.click_streak = math.min(20, (state.click_streak or 0) + 1)
+  else
+    state.click_streak = 1
+  end
+  state._lastClickTime = now
+  local streakMult = 1 + math.min(20, state.click_streak) * 0.05
+  v = v * streakMult
+
   state.z = state.z + v
   state.z_lifetime = (state.z_lifetime or 0) + v
   state.z_clicked = (state.z_clicked or 0) + v
@@ -663,10 +718,20 @@ function M.clickCore(state, lx, ly, opts)
   })
 
   if not opts.sustained then
-    Audio.click(1)
-    Fx.flash("#33ff88", 90, 0.30)
-    Fx.shake(0.18, 110)
+    Audio.click(streakMult)
+    Fx.flash("#33ff88", 90, 0.30 + (streakMult - 1) * 0.20)
+    Fx.shake(0.18 + (streakMult - 1) * 0.10, 110)
     Fx.ripple("#33ff88", 0.32, 0.50, 800)
+    -- Streak callout every 5 clicks
+    if state.click_streak and state.click_streak > 1 and state.click_streak % 5 == 0 then
+      state.floats:emit({
+        x = (lx or cx) - 60, y = (ly or cy) - 120,
+        text = string.format("STREAK ×%d", state.click_streak),
+        color = { 1, 0.95, 0.55 },
+        size = 1.4, weight = "bold",
+        life = 1.6, vy = -110,
+      })
+    end
   else
     Audio.miner()
   end
@@ -752,6 +817,38 @@ function M.buyEnergy(state, def, qty, silent)
     life = 1.0, size = 4, kind = "spark",
   })
   recompute(state, love.timer.getTime())
+end
+
+function M.emoteWave(state)
+  if state.scene ~= "world" or not state.world then return end
+  Audio.emoteWave()
+  Network.notify(state.network, "wave", {
+    wx = state.world.char.wx,
+    wy = state.world.char.wy,
+  })
+  state.world.char._waveTimer = 1.4
+  state.world._lastSelfWave = love.timer.getTime()
+  M.message(state, "Waved at the mesh", { 0.55, 0.85, 1 })
+  Fx.ripple("#5db4ff", 0.5, 0.5, 700)
+end
+
+function M.plantFlag(state)
+  if state.scene ~= "world" or not state.world then return end
+  Audio.flagPlant()
+  local wx, wy = state.world.char.wx, state.world.char.wy
+  Network.notify(state.network, "flag", {
+    wx = wx, wy = wy,
+    name = state.facility_name,
+  })
+  state.world.flags = state.world.flags or {}
+  table.insert(state.world.flags, {
+    wx = wx, wy = wy,
+    color = state.cosmetics and { 0.30, 1.00, 0.55 } or { 0.30, 1, 0.55 },
+    name = state.facility_name,
+    plantedAt = love.timer.getTime(),
+    self = true,
+  })
+  M.message(state, "Flag planted", { 0.55, 1, 0.75 })
 end
 
 function M.boost(state, target_id)
@@ -940,6 +1037,18 @@ function M.draw(state, fonts, mx, my)
     return
   end
 
+  if state.scene == "world" and state.world then
+    World.draw(state.world, state, fonts, t)
+    -- Particles and floats overlay (clipped to canvas)
+    state.particles:draw()
+    state.floats:draw(fonts)
+    -- Top HUD always visible for context
+    Hud.draw(state, fonts, t)
+    drawBottomBar(state, fonts)
+    if state.paused then drawPauseOverlay(fonts, t) end
+    return
+  end
+
   love.graphics.clear(0.01, 0.03, 0.02, 1)
 
   Hud.draw(state, fonts, t)
@@ -969,6 +1078,9 @@ end
 function M.mousepressed(state, lx, ly, button)
   if state.scene == "intro" then
     Intro.mousepressed(state.intro, lx, ly, button)
+    return
+  end
+  if state.scene == "world" then
     return
   end
   if button == 1 then
@@ -1027,6 +1139,29 @@ end
 function M.keypressed(state, key)
   if state.scene == "intro" then
     Intro.keypressed(state.intro, key)
+    return
+  end
+  -- World view scoped keys
+  if state.scene == "world" and state.world then
+    if key == "tab" then
+      state.scene = "play"
+      Audio.worldSwoosh()
+      Fx.flash("#33ff88", 180, 0.30)
+      return
+    end
+    World.keypressed(state.world, state, key, {
+      toCore     = function() state.scene = "play"; Audio.worldSwoosh(); Fx.flash("#33ff88", 180, 0.30) end,
+      onMessage  = function(msg, color) M.message(state, msg, color); Audio.tab() end,
+      onWave     = function() M.emoteWave(state) end,
+      onFlag     = function() M.plantFlag(state) end,
+    })
+    return
+  end
+  if key == "tab" then
+    state.scene = "world"
+    Audio.worldSwoosh()
+    Fx.flash("#33ff88", 180, 0.30)
+    Fx.ripple("#33ff88", 0.5, 0.5, 1100)
     return
   end
   if key == "p" then

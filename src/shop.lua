@@ -3,6 +3,7 @@ local minersDb = require "src.miners"
 local energyDb = require "src.energy"
 local upgradesDb = require "src.upgrades"
 local Network = require "src.network"
+local Coin = require "src.coin"
 
 local M = {}
 
@@ -199,9 +200,15 @@ local function drawMinerCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   love.graphics.setColor(0.5, 0.85, 0.65, 1)
   love.graphics.print("BUY", bx + 10, by + 6)
 
+  -- Cost with Z-coin
   love.graphics.setFont(fonts.bold)
-  love.graphics.setColor(affordable and 1 or 0.55, affordable and 1 or 0.55, affordable and 0.65 or 0.55, 1)
-  love.graphics.printf(fmt.zeptons(unitCost), bx, by + 24, btnW - 12, "right")
+  local costStr = fmt.zeptons(unitCost)
+  local cw = fonts.bold:getWidth(costStr)
+  local coinSize = 9
+  local total = coinSize * 2 + 6 + cw
+  local startCX = bx + btnW - 10 - total
+  local color = affordable and { 0.55, 1, 0.75 } or { 0.55, 0.55, 0.55 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color)
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.45, 0.65, 0.55, 0.8)
@@ -298,9 +305,16 @@ local function drawEnergyCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   love.graphics.setColor(1, 0.80, 0.45, 1)
   love.graphics.print("BUILD", bx + 10, by + 6)
 
+  -- Cost with Z-coin
   love.graphics.setFont(fonts.bold)
-  love.graphics.setColor(affordable and 1 or 0.55, affordable and 0.95 or 0.5, affordable and 0.55 or 0.35, 1)
-  love.graphics.printf(fmt.zeptons(unitCost), bx, by + 24, btnW - 12, "right")
+  local costStr = fmt.zeptons(unitCost)
+  local cw = fonts.bold:getWidth(costStr)
+  local coinSize = 9
+  local total = coinSize * 2 + 6 + cw
+  local startCX = bx + btnW - 10 - total
+  local color = affordable and { 1, 0.95, 0.55 } or { 0.55, 0.50, 0.40 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color,
+    { color = { 1, 0.85, 0.45 } })
 
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.65, 0.55, 0.35, 0.8)
@@ -439,9 +453,16 @@ local function drawUpgradeCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.45, 0.65, 0.95, 1)
   love.graphics.print("UNLOCK", bx + 10, by + 6)
+
   love.graphics.setFont(fonts.bold)
-  love.graphics.setColor(affordable and 0.8 or 0.55, affordable and 0.9 or 0.6, 1, 1)
-  love.graphics.printf(fmt.zeptons(def.cost), bx, by + 22, btnW - 12, "right")
+  local costStr = fmt.zeptons(def.cost)
+  local cw = fonts.bold:getWidth(costStr)
+  local coinSize = 9
+  local total = coinSize * 2 + 6 + cw
+  local startCX = bx + btnW - 10 - total
+  local color = affordable and { 0.65, 0.85, 1 } or { 0.45, 0.50, 0.65 }
+  Coin.drawWithLabel(startCX, by + 36, coinSize, t, costStr, fonts.bold, color,
+    { color = { 0.45, 0.70, 1.00 } })
 
   return { kind = "buy_upgrade", def = def, x = bx, y = by, w = btnW, h = btnH }
 end
