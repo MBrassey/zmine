@@ -214,36 +214,38 @@ end
 function M.new(facility_seed, playerStats)
   local s = {
     facility_seed = facility_seed,
-    -- Live mode: "real" if connected to portal room, "sim" otherwise.
     mode = "sim",
-    -- Sim layer
     sim_players = {},
-    -- Real layer mirrors
-    realPeers = {},     -- userId -> { id, name, avatar, lastUpdate, stats... }
-    peer_memory = {},   -- persistent: userId -> last-known stats
-    received_flags = {},-- flags planted by peers in the world
-    -- Shared
+    realPeers = {},
+    peer_memory = {},
+    received_flags = {},
     events  = {},
     pool_with = nil,
     pool_started_at = 0,
     interactions = {},
     boostCount = 0,
-    -- Outgoing-broadcast cadence
-    _lastStatsBroadcast = -100,
-    _statsInterval = 8,
-    -- Connection plumbing
-    _bootstrapped = false,
-    _hasJoinedRoom = false,
-    _bootstrapAttemptedAt = 0,
-    -- Self identity
-    self_userId = nil,
-    self_handle = nil,
+    _lastStatsBroadcast    = -100,
+    _statsInterval         = 8,
+    _lastSlugPresence      = -100,
+    _slugPresenceInterval  = 30,
+    _bootstrapped          = false,
+    _hasJoinedRoom         = false,
+    _bootstrapAttemptedAt  = 0,
+    self_userId   = nil,
+    self_handle   = nil,
     self_facility_name = nil,
-    -- Tick clock
     _t = 0,
     _lastTick = 0,
-    -- Active-presence chime gate
     _seenIds = {},
+    _profileRequested = {},        -- userId -> requested-at, throttle
+    _slugTopUsers = {},            -- list from active.json
+    _slugStats = nil,              -- last full active.json
+    _surgeUntil = 0,               -- absolute timer.getTime when surge ends
+    _surgeMult  = 0.5,             -- 50% bonus during surge
+    _lastBroadcast = -100,         -- broadcast emit gate
+    _broadcastedBlocks = 0,        -- last block height we broadcast
+    _broadcastedHalvings = 0,      -- last halving count we broadcast
+    _broadcastedNewTiers = {},     -- "miner:asic_z1" -> true
   }
   for i = 1, PLAYER_COUNT_SIM do
     s.sim_players[i] = makeSimPlayer(facility_seed, i, 0)
@@ -528,24 +530,113 @@ end
 -- Update tick
 -- ============================================================
 
+local function onSlugEvent(state, evt)
+  if not evt then return end
+  local payload = evt.payload or {}
+  -- Slug events with verbs we already mirror locally are deduplicated by id;
+  -- we only show them in the ticker if they're from a different room.
+  local fromOurRoom = (Net.room and evt.roomId == Net.room.id)
+  if fromOurRoom then return end
+  local who = (evt.handle or "operator")
+  if state.realPeers[evt.userId or ""] then
+    who = state.realPeers[evt.userId].facility_name
+  end
+  if evt.verb == "block" then
+    pushEvent(state, "block",
+      string.format("⛏  %s found a block — +%s Z [global]", who,
+        fmt.zeptons(tonumber(payload.reward) or 0)),
+      { 1, 0.95, 0.55 })
+  elseif evt.verb == "halving" then
+    pushEvent(state, "halving",
+      string.format("½  %s endured a halving event [global]", who),
+      { 0.85, 0.65, 1 })
+  elseif evt.verb == "tier_unlocked" then
+    pushEvent(state, "tier",
+      string.format("✦  %s unlocked %s [global]", who, payload.name or "a new tier"),
+      { 1, 0.85, 0.45 })
+  elseif evt.verb == "surge_started" then
+    pushEvent(state, "surge",
+      string.format("⚡  GLOBAL SURGE +%d%% — %ds", math.floor((payload.mult or 0.5) * 100),
+                    math.floor((payload.duration_ms or 0) / 1000)),
+      { 1, 0.55, 0.30 })
+  elseif evt.verb == "join" then
+    pushEvent(state, "global_join",
+      string.format("◉  %s joined the mesh [global]", who),
+      { 0.55, 0.95, 0.75 })
+  end
+end
+
+local function maybeBroadcastBigEvents(state, playerStats)
+  -- Block: broadcast the latest block once.
+  local height = playerStats.block_height or 0
+  if height > (state._broadcastedBlocks or 0) and (playerStats.z_per_sec or 0) > 0 then
+    state._broadcastedBlocks = height
+    Net.broadcast("block", {
+      reward = math.max(50, (playerStats.z_per_sec or 0) * 30),
+      height = height,
+    })
+  end
+  -- Halving: broadcast on transition.
+  local h = playerStats._lastHalvingNotice or 0
+  if h > (state._broadcastedHalvings or 0) then
+    state._broadcastedHalvings = h
+    Net.broadcast("halving", { count = h })
+  end
+  -- New-tier unlock: broadcast first time a kind reaches count 1.
+  for _, def in ipairs(minersDb.list) do
+    if (playerStats.miners[def.key] or 0) >= 1 and not state._broadcastedNewTiers["miner:" .. def.key] then
+      state._broadcastedNewTiers["miner:" .. def.key] = true
+      Net.broadcast("tier_unlocked", { kind = "miner", key = def.key, name = def.name, tier = def.tier })
+    end
+  end
+  for _, def in ipairs(energyDb.list) do
+    if (playerStats.energy[def.key] or 0) >= 1 and not state._broadcastedNewTiers["energy:" .. def.key] then
+      state._broadcastedNewTiers["energy:" .. def.key] = true
+      Net.broadcast("tier_unlocked", { kind = "energy", key = def.key, name = def.name, tier = def.tier })
+    end
+  end
+end
+
+local function checkSurge(state)
+  local sst = Net.slugState
+  if not sst or not sst.state then return end
+  local until_ms = tonumber(sst.state.surge_until or 0) or 0
+  if until_ms > 0 then
+    local now_ms = math.floor(love.timer.getTime() * 1000) +
+                   ((Net.active and Net.active.at) or 0) - math.floor(love.timer.getTime() * 1000)
+    -- We can't reliably reconcile wall-clock time on the client, so use the
+    -- portal's `at` if it's recent. Conservative fallback: treat surge_until
+    -- as a rough relative offset by comparing to last seen `Net.active.at`.
+    local effectiveNow = (Net.active and Net.active.at) or os.time() * 1000
+    if effectiveNow < until_ms then
+      state._surgeUntil = love.timer.getTime() + (until_ms - effectiveNow) / 1000
+    else
+      state._surgeUntil = 0
+    end
+  end
+end
+
 function M.update(state, dt, playerStats)
   state._t = (state._t or 0) + dt
-  -- Throttle deeper sim/poll to 4 Hz
   if state._t - (state._lastTick or 0) < 0.25 then return end
   state._lastTick = state._t
 
-  -- Remember our own facility name (so peers display it)
   state.self_facility_name = playerStats.facility_name or state.self_facility_name
 
-  -- Poll the net layer regardless of mode (it's idempotent)
   Net.poll(function (evt)
     onNetEvent(state, evt)
+  end, function (evt)
+    onSlugEvent(state, evt)
   end)
-  -- Self identity (best-effort) — pulled from any room/state hints we get
+
   if Net.identity and Net.identity.userId then
     state.self_userId = Net.identity.userId
     state.self_handle = Net.identity.handle
   end
+
+  state._slugStats = Net.active
+  state._slugTopUsers = (Net.active and Net.active.topUsers) or {}
+  checkSurge(state)
 
   -- Try to bootstrap a room
   attemptBootstrap(state)
@@ -668,7 +759,7 @@ function M.update(state, dt, playerStats)
     end
   end
 
-  -- Periodic stats broadcast (only meaningful in real mode but harmless)
+  -- Periodic per-room stats broadcast
   if state.mode == "real" then
     if (state._t - state._lastStatsBroadcast) >= state._statsInterval then
       state._lastStatsBroadcast = state._t
@@ -680,6 +771,58 @@ function M.update(state, dt, playerStats)
         level         = levelFromZ(math.max(1, playerStats.z_lifetime or 1)),
         block_height  = playerStats.block_height or 0,
       })
+    end
+    -- Slug-wide presence refresh (rank by lifetime)
+    if (state._t - state._lastSlugPresence) >= state._slugPresenceInterval then
+      state._lastSlugPresence = state._t
+      Net.slugPresence("z_lifetime", 12)
+    end
+    -- Auto-mirror big events to slug
+    maybeBroadcastBigEvents(state, playerStats)
+    -- Lazily fetch profiles for every roster member we don't have
+    for uid, p in pairs(state.realPeers) do
+      if not Net.profiles[uid] and (state._profileRequested[uid] or 0) < state._t - 30 then
+        state._profileRequested[uid] = state._t
+        Net.profile(uid)
+      end
+    end
+    -- Merge slug top-users into peer_memory so offline ranked peers show up
+    for _, u in ipairs(state._slugTopUsers) do
+      local uid = tostring(u.userId or "")
+      if uid ~= "" and uid ~= (state.self_userId or "") and not state.realPeers[uid] then
+        local prof = u.profile or {}
+        local seedNum = hashUserIdToInt(uid)
+        state.peer_memory[uid] = state.peer_memory[uid] or {}
+        local mem = state.peer_memory[uid]
+        mem.userId        = uid
+        mem.handle        = u.handle or mem.handle
+        mem.facility_name = prof.facility_name or u.handle or mem.facility_name
+        mem.avatar        = mem.avatar or pickAvatar(seedNum)
+        mem.z_lifetime    = tonumber(prof.z_lifetime) or mem.z_lifetime or 0
+        mem.z_per_sec     = tonumber(prof.z_per_sec) or 0
+        mem.hashrate      = tonumber(prof.hashrate) or mem.hashrate or 0
+        mem.level         = tonumber(prof.level) or mem.level or 0
+        mem.lastSeen      = u.lastSeenAt or mem.lastSeen
+        mem.lastOnlineFlag = false
+        mem.from_slug     = true
+      end
+    end
+    -- Pull in fetched profile blobs (overrides peer_memory placeholders)
+    for uid, prof in pairs(Net.profiles) do
+      if uid ~= (state.self_userId or "") and prof.profile then
+        local mem = state.peer_memory[uid] or {}
+        local p = prof.profile
+        mem.userId        = uid
+        mem.handle        = mem.handle or prof.handle
+        mem.facility_name = p.facility_name or mem.facility_name or prof.handle or "operator"
+        mem.avatar        = mem.avatar or pickAvatar(hashUserIdToInt(uid))
+        if tonumber(p.z_lifetime) then mem.z_lifetime = tonumber(p.z_lifetime) end
+        if tonumber(p.z_per_sec)  then mem.z_per_sec  = tonumber(p.z_per_sec)  end
+        if tonumber(p.hashrate)   then mem.hashrate   = tonumber(p.hashrate)   end
+        if tonumber(p.level)      then mem.level      = tonumber(p.level)      end
+        mem.profile_synced_at = state._t
+        state.peer_memory[uid] = mem
+      end
     end
   end
 
@@ -740,6 +883,10 @@ end
 function M.statusText(state)
   if state.mode == "real" and Net.connected() then
     if Net.room and Net.room.id then
+      local active = (Net.active and Net.active.activeUsers) or 0
+      if active > 0 then
+        return string.format("ONLINE  ·  %d GLOBAL", active)
+      end
       return "ONLINE  ·  ROOM SYNCED"
     end
     return "CONNECTING"
@@ -754,23 +901,92 @@ function M.activePeerCount(state)
   return n
 end
 
+function M.globalActiveUsers(state)
+  if state.mode ~= "real" or not Net.active then return 0 end
+  return tonumber(Net.active.activeUsers) or 0
+end
+
+function M.globalAllTimeUsers(state)
+  if state.mode ~= "real" or not Net.active then return 0 end
+  return tonumber(Net.active.allTimeUsers) or 0
+end
+
+function M.globalLast24h(state)
+  if state.mode ~= "real" or not Net.active then return 0 end
+  return tonumber(Net.active.last24hUsers) or 0
+end
+
+function M.globalTotalRooms(state)
+  if state.mode ~= "real" or not Net.active then return 0 end
+  return tonumber(Net.active.totalRooms) or 0
+end
+
+function M.topUsers(state)
+  return state._slugTopUsers or {}
+end
+
+function M.surgeRemaining(state)
+  local rem = (state._surgeUntil or 0) - love.timer.getTime()
+  if rem <= 0 then return 0 end
+  return rem
+end
+
+function M.surgeMultiplier(state)
+  if M.surgeRemaining(state) > 0 then
+    return state._surgeMult or 0.5
+  end
+  return 0
+end
+
 function M.popJoined(state)
   local out = state.newly_joined or {}
   state.newly_joined = {}
   return out
 end
 
+-- Authoritative slug-state mutator. Players cooperate to push the
+-- "all_time_blocks" counter and trigger surge windows when it crosses
+-- 100-block thresholds. Last writer wins; conflicts heal next tick.
+function M.maybeAdvanceGlobalBlocks(state, blockHeight)
+  if state.mode ~= "real" then return end
+  local sst = Net.slugState
+  if not sst then return end
+  local known = tonumber((sst.state or {}).all_time_blocks or 0) or 0
+  if blockHeight > known then
+    local next_total = known + 1  -- conservative — only claim one block per emit
+    local patch = { all_time_blocks = next_total }
+    -- Surge trigger every 100 global blocks
+    if next_total > 0 and (next_total % 100 == 0) then
+      local startedAt = (Net.active and Net.active.at) or os.time() * 1000
+      patch.surge_until = startedAt + 120000
+      patch.surge_started_at = startedAt
+      patch.surge_mult = 0.5
+      Net.broadcast("surge_started", {
+        started_at  = startedAt,
+        duration_ms = 120000,
+        mult        = 0.5,
+        global_blocks = next_total,
+      })
+    end
+    Net.setSlugState(patch)
+  end
+end
+
 -- ============================================================
 -- Interactions
 -- ============================================================
 
+local function isSimId(id)
+  return id and tostring(id):find("ghost-") == 1
+end
+
 function M.interact(state, target_id, kind, paid)
   if kind == "boost" then
     state.boostCount = (state.boostCount or 0) + 1
-    if state.mode == "real" and not (target_id and target_id:find("ghost-") == 1) then
-      Net.send("boost", { target = target_id, paid = paid or 0 })
+    if state.mode == "real" and not isSimId(target_id) then
+      -- Targeted unicast — only the sender + recipient see it
+      Net.send("boost", { paid = paid or 0 }, target_id)
     else
-      -- Sim ghost — schedule a local thanks
       local snap
       for _, sn in ipairs(state._snapshots or {}) do
         if sn.id == target_id then snap = sn; break end
@@ -787,12 +1003,12 @@ function M.interact(state, target_id, kind, paid)
   elseif kind == "pool" then
     state.pool_with = target_id
     state.pool_started_at = state._t
-    if state.mode == "real" and not (target_id and target_id:find("ghost-") == 1) then
-      Net.send("pool_request", { target = target_id })
+    if state.mode == "real" and not isSimId(target_id) then
+      Net.send("pool_request", {}, target_id)
     end
   elseif kind == "leave_pool" then
-    if state.mode == "real" and state.pool_with and not (state.pool_with:find("ghost-") == 1) then
-      Net.send("pool_leave", { target = state.pool_with })
+    if state.mode == "real" and state.pool_with and not isSimId(state.pool_with) then
+      Net.send("pool_leave", {}, state.pool_with)
     end
     state.pool_with = nil
   end

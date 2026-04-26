@@ -19,12 +19,15 @@ local Cosmetics  = require "src.cosmetics"
 
 local M = {}
 
+local json = require "lib.json"
+
 local DESIGN_W, DESIGN_H = 1920, 1080
 local SAVE_INTERVAL = 15
 local AUTOBUY_INTERVAL = 30
-local BLOCK_INTERVAL = 60   -- seconds between found blocks
-local HALVING_BLOCKS = 100  -- halve base reward every N blocks
-local HASH_PER_PRODUCE = 110e12  -- 110 TH/s per "1 produce" unit (calibrates hashrate display)
+local BLOCK_INTERVAL = 60
+local HALVING_BLOCKS = 100
+local HASH_PER_PRODUCE = 110e12
+local PROFILE_INTERVAL = 30  -- write public_profile.json every N seconds
 
 -- ============================================================
 -- State helpers
@@ -203,6 +206,11 @@ local function recompute(state, t)
   local supply = rawEnergySupply(state, t, state.day_phase or 0.4)
   local demand = rawEnergyDemand(state)
   local rawRate = rawZRate(state)
+  -- Surge multiplier from slug-wide global state
+  local surgeMult = state.network and Network.surgeMultiplier(state.network) or 0
+  if surgeMult > 0 then
+    rawRate = rawRate * (1 + surgeMult)
+  end
   -- Power efficiency: if demand > supply, throttle
   local efficiency = 1
   if demand > supply and demand > 0 then
@@ -214,10 +222,10 @@ local function recompute(state, t)
   state.energy_used = math.min(demand, supply + 0.0001)
   state.energy_demand_raw = demand
   state.miner_count = totalMinerCount(state)
-  -- Computational hash rate: based on raw production before energy throttle
   state.hashrate = rawRate * HASH_PER_PRODUCE
-  -- Network difficulty scales with cumulative blocks; cosmetic
   state.difficulty = 0.5e12 * (1 + (state.block_height or 0) * 0.012)
+  state.surge_mult = surgeMult
+  state.surge_remaining = state.network and Network.surgeRemaining(state.network) or 0
 end
 
 -- ============================================================
@@ -660,6 +668,16 @@ function M.update(state, dt, fonts)
     state._lastSave = love.timer.getTime()
     M.save(state)
   end
+
+  -- Periodic public_profile.json write so peers see our facility when we're offline.
+  -- First write fires ~3s after entering play (so stats are populated).
+  if not state._lastProfile then
+    state._lastProfile = love.timer.getTime() - PROFILE_INTERVAL + 3
+  end
+  if love.timer.getTime() - state._lastProfile > PROFILE_INTERVAL then
+    state._lastProfile = love.timer.getTime()
+    M.writeProfile(state)
+  end
 end
 
 -- ============================================================
@@ -903,8 +921,10 @@ function M.findBlock(state)
   state.z = state.z + total
   state.z_lifetime = (state.z_lifetime or 0) + total
 
-  -- Broadcast to mesh (real-mode) so other players see our block
+  -- Broadcast to room mesh
   Network.notify(state.network, "block", { reward = total, height = state.block_height })
+  -- Advance the slug-wide global block counter (may trigger a surge)
+  Network.maybeAdvanceGlobalBlocks(state.network, state.block_height)
 
   -- Notification
   M.message(state, string.format("BLOCK #%d FOUND  +%s Z", state.block_height, fmt.zeptons(total)),
@@ -964,10 +984,35 @@ end
 -- ============================================================
 
 function M.save(state)
-  if state.scene ~= "play" then return end
+  if state.scene ~= "play" and state.scene ~= "world" then return end
   local ok, err = Save.save(state)
   if ok then
     M.message(state, "// save synced", { 0.55, 0.85, 0.95 })
+  end
+end
+
+-- Write a small public_profile.json snapshot so peers can see our
+-- facility data even when we're offline. Anyone (signed in or not) can
+-- read this through the portal's profiles endpoint.
+function M.writeProfile(state)
+  if not state.facility_name then return end
+  local profile = {
+    facility_name = state.facility_name,
+    z_lifetime    = math.floor(state.z_lifetime or 0),
+    z_per_sec     = state.z_per_sec or 0,
+    hashrate      = state.hashrate or 0,
+    level         = state.z_lifetime and state.z_lifetime > 1
+                      and math.log(state.z_lifetime) / math.log(10)
+                      or 0,
+    block_height  = state.block_height or 0,
+    miner_count   = state.miner_count or 0,
+    palette       = (state.cosmetics and state.cosmetics.palette) or "default",
+    accent_color  = state.cosmetics and state.cosmetics.equipped and state.cosmetics.equipped.aura,
+    updated_at    = os.time(),
+  }
+  local ok, encoded = pcall(json.encode, profile)
+  if ok and #encoded < 32000 then
+    love.filesystem.write("public_profile.json", encoded)
   end
 end
 

@@ -104,36 +104,61 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.45, 0.75, 0.90, 1)
   love.graphics.print(string.format("MINERS %d", state.miner_count or 0), tx, 70)
 
-  -- Active mesh peers badge — bright pulse if real users online
-  local activePeers = 0
-  local meshLive = false
-  if state.network then
-    if require("src.network").activePeerCount then
-      activePeers = require("src.network").activePeerCount(state.network)
-    end
-    meshLive = state.network.mode == "real"
-  end
-  if meshLive and activePeers > 0 then
-    local bx, by = DESIGN_W - 360, 14
+  -- Live mesh badge — global active operators + room online + 24h
+  local Network = require "src.network"
+  local activeRoom   = state.network and Network.activePeerCount(state.network)   or 0
+  local activeGlobal = state.network and Network.globalActiveUsers(state.network) or 0
+  local last24h      = state.network and Network.globalLast24h(state.network)     or 0
+  local allTime      = state.network and Network.globalAllTimeUsers(state.network)or 0
+  local totalRooms   = state.network and Network.globalTotalRooms(state.network)  or 0
+  local meshLive     = state.network and state.network.mode == "real"
+  if meshLive then
+    local bx, by = DESIGN_W - 410, 14
+    local bw, bh = 240, 76
     local pulse = 0.65 + math.sin(t * 4) * 0.35
     love.graphics.setColor(0.04, 0.10, 0.20, 0.95)
-    love.graphics.rectangle("fill", bx, by, 200, 60, 6, 6)
+    love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
     love.graphics.setColor(0.30, 0.85, 1.00, pulse)
     love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", bx, by, 200, 60, 6, 6)
+    love.graphics.rectangle("line", bx, by, bw, bh, 6, 6)
     love.graphics.setLineWidth(1)
-    -- Pulsing dot
     love.graphics.setColor(0.30, 1, 0.55, pulse)
     love.graphics.circle("fill", bx + 18, by + 22, 7)
     love.graphics.setColor(0.30, 1, 0.55, pulse * 0.4)
     love.graphics.circle("fill", bx + 18, by + 22, 12)
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.30, 1, 0.55, 1)
-    love.graphics.print("LIVE", bx + 32, by + 8)
+    love.graphics.print("LIVE  ON  GAMES.BRASSEY.IO", bx + 32, by + 8)
     love.graphics.setFont(fonts.medium)
     love.graphics.setColor(0.85, 0.95, 1, 1)
-    love.graphics.print(string.format("%d operator%s online", activePeers, activePeers == 1 and "" or "s"),
-      bx + 32, by + 24)
+    love.graphics.print(string.format("%d  operator%s mining now",
+      activeGlobal, activeGlobal == 1 and "" or "s"), bx + 32, by + 24)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.55, 0.75, 0.95, 0.85)
+    love.graphics.print(string.format("%d in your room  ·  %d in 24h  ·  %d all time",
+      activeRoom, last24h, allTime), bx + 32, by + 50)
+  end
+
+  -- Global SURGE banner — bold full-width strip when active
+  local surgeRem = state.network and Network.surgeRemaining(state.network) or 0
+  if surgeRem > 0 then
+    local sw = 540
+    local sx = DESIGN_W / 2 - sw / 2
+    local sy = HUD_H - 22
+    local pulse = 0.7 + math.sin(t * 6) * 0.3
+    love.graphics.setColor(0.30, 0.10, 0.04, 0.95)
+    love.graphics.rectangle("fill", sx, sy, sw, 38, 6, 6)
+    love.graphics.setColor(1, 0.55, 0.25, pulse)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", sx, sy, sw, 38, 6, 6)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.bold)
+    local mult = state.network and Network.surgeMultiplier(state.network) or 0.5
+    local txt = string.format("⚡  GLOBAL SURGE  +%d%%   %ds",
+      math.floor(mult * 100), math.floor(surgeRem))
+    local tw = fonts.bold:getWidth(txt)
+    love.graphics.setColor(1, 0.85, 0.45, pulse)
+    love.graphics.print(txt, sx + sw/2 - tw/2, sy + 8)
   end
 
   -- Pause indicator

@@ -540,6 +540,20 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
     fmt.hashRate(network.totalHashRate or 0)),
     startX + 14, lay + 56)
 
+  -- Global breakdown (slug-wide stats)
+  local activeGlobal = Network.globalActiveUsers(network)
+  if activeGlobal > 0 then
+    local last24 = Network.globalLast24h(network)
+    local allT   = Network.globalAllTimeUsers(network)
+    local rooms  = Network.globalTotalRooms(network)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.55, 0.85, 1, 0.95)
+    love.graphics.printf(
+      string.format("GLOBAL %d active  ·  %d rooms  ·  %d /24h  ·  %d all-time",
+        activeGlobal, rooms, last24, allT),
+      startX, lay + 56, cardW - 14, "right")
+  end
+
   -- Pool indicator
   if network.pool_with then
     love.graphics.setColor(0.55, 0.85, 0.95, 0.95)
