@@ -400,13 +400,16 @@ local function onNetEvent(state, evt)
         respond_at = state._t + 30 + love.math.random() * 90,
         responded = false,
       })
+      -- Boost is a SOCIAL ping — no BTC arrives. The message used to
+      -- read "+X Z incoming" which fooled players into thinking peer
+      -- balance was being harvested. Now it's a clear thumbs-up.
       pushEvent(state, "boost_in",
-        string.format("⇄  %s boosted YOU — +%s Z incoming", senderName, fmt.zeptons(tonumber(payload.paid) or 0)),
+        string.format("⇄  %s sent you a boost (social signal — no transfer)", senderName),
         { 0.55, 0.85, 1 })
     else
-      -- Cosmetic chatter
+      -- Cosmetic chatter — someone tipped someone else, no transfer.
       pushEvent(state, "boost",
-        string.format("⇄  %s boosted a peer (%s Z)", senderName, fmt.zeptons(tonumber(payload.paid) or 0)),
+        string.format("⇄  %s gave a peer a shout-out", senderName),
         { 0.45, 0.70, 0.95 })
     end
   elseif evt.verb == "thanks" then

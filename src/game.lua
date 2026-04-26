@@ -214,12 +214,21 @@ local function rawZRate(state)
 end
 
 local function rawEnergyDemand(state)
+  -- Real mining farms don't draw a flat watts-per-rig — at scale you
+  -- pay for cooling overhead, transformer loss, network gear, and
+  -- facility staffing power that all rise faster than the rigs do.
+  -- Model that with a sub-linear log multiplier per kind: 1 unit costs
+  -- exactly its def.energy; 10 units cost ~1.4×; 100 units ~1.8×;
+  -- 1000 units ~2.2×. So scaling up the same tier pinches the grid
+  -- harder than the unit count alone suggests, and the player is
+  -- forced to keep upgrading energy infrastructure to keep building.
   local d = 0
   local mods = state.mods
   for _, def in ipairs(minersDb.list) do
     local c = state.miners[def.key] or 0
     if c > 0 then
-      d = d + c * def.energy
+      local overhead = 1 + math.log10(c) * 0.4
+      d = d + c * def.energy * overhead
     end
   end
   d = d * (1 - mods.energy_eff)
