@@ -905,7 +905,7 @@ local function drawFloor(state, t)
   end
 end
 
-local function drawPad(pad, state, t)
+local function drawPad(pad, state, world, t)
   local sx, sy = Iso.toScreen(pad.wx, pad.wy, 0)
   local owned, cost
   if pad.kind == "miner" then
@@ -920,7 +920,14 @@ local function drawPad(pad, state, t)
   if not affordable then
     color = { color[1] * 0.45, color[2] * 0.45, color[3] * 0.45 }
   end
-  Assets.drawBuyPad(sx, sy, color, t, { phase = pad.phase })
+  -- Pad animates only when the local player is standing on it AND
+  -- the pad is currently affordable. Idle pads stay static so the
+  -- ambient pulse can't be misread as another user interacting.
+  local isOn = world and inPad(world.char, pad)
+  Assets.drawBuyPad(sx, sy, color, t, {
+    phase  = pad.phase,
+    active = isOn and affordable,
+  })
 
   -- Floating tier + cost label (full name, not short code, so a Tab-first
   -- player can navigate without prior shop knowledge). 26-char truncation
@@ -1233,7 +1240,7 @@ function M.draw(world, state, fonts, t)
 
   for _, e in ipairs(entities) do
     if e.kind == "pad" then
-      drawPad(e.pad, state, t)
+      drawPad(e.pad, state, world, t)
     elseif e.kind == "canister" then
       local sx, sy = Iso.toScreen(e.c.wx, e.c.wy, 0)
       local fill = world.canister_fills[e.c.key] or 0

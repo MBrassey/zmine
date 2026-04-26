@@ -905,29 +905,61 @@ M.energy = {
 
 function M.drawBuyPad(sx, sy, color, t, opts)
   opts = opts or {}
-  -- Outer ring
-  love.graphics.setColor(color[1], color[2], color[3], 0.30 + math.sin(t * 3 + (opts.phase or 0)) * 0.15)
+  -- Pads animate ONLY when the local player is standing on them
+  -- (opts.active = true). Idle pads are completely static so the
+  -- player can't mistake an idle ripple for "someone else is using
+  -- that pad" — there are no other-user pads in this world; the
+  -- ambient pulsing on pads they didn't step on was reading as
+  -- foreign activity.
+  local active = opts.active
+  local outerPulse = active and (0.30 + math.sin(t * 3 + (opts.phase or 0)) * 0.15) or 0.22
+  love.graphics.setColor(color[1], color[2], color[3], outerPulse)
   love.graphics.ellipse("fill", sx, sy + 2, 38, 14)
-  love.graphics.setColor(color[1], color[2], color[3], 0.85)
+  love.graphics.setColor(color[1], color[2], color[3], active and 0.85 or 0.45)
   love.graphics.setLineWidth(2)
   love.graphics.ellipse("line", sx, sy + 2, 38, 14)
   -- Inner pad
   love.graphics.setColor(color[1] * 0.4, color[2] * 0.4, color[3] * 0.4, 0.95)
   love.graphics.ellipse("fill", sx, sy + 2, 30, 11)
-  -- Pulsing arrow icon (up arrow)
-  local pulse = 0.8 + math.sin(t * 4) * 0.2
-  love.graphics.setColor(color[1], color[2], color[3], pulse)
-  local ay = sy - 8 - math.sin(t * 4) * 2
+  -- Up arrow — bobs / pulses only when active
+  local arrowAlpha = active and (0.8 + math.sin(t * 4) * 0.2) or 0.55
+  local arrowYOff  = active and (math.sin(t * 4) * 2) or 0
+  love.graphics.setColor(color[1], color[2], color[3], arrowAlpha)
+  local ay = sy - 8 - arrowYOff
   love.graphics.polygon("fill",
     sx - 5, ay, sx + 5, ay, sx, ay - 6)
   love.graphics.setLineWidth(1)
-  -- Spark dots
-  for k = 0, 5 do
-    local a = (t * 0.8 + k / 6) * math.pi * 2
-    local rx = math.cos(a) * 30
-    local ry = math.sin(a) * 11
-    love.graphics.setColor(color[1], color[2], color[3], 0.85)
-    love.graphics.circle("fill", sx + rx, sy + 2 + ry, 1.5)
+  -- Spark dots — only orbit while active. Idle pads have a static
+  -- ring of 6 dim dots so the pad is still legible without spinning.
+  if active then
+    for k = 0, 5 do
+      local a = (t * 0.8 + k / 6) * math.pi * 2
+      local rx = math.cos(a) * 30
+      local ry = math.sin(a) * 11
+      love.graphics.setColor(color[1], color[2], color[3], 0.85)
+      love.graphics.circle("fill", sx + rx, sy + 2 + ry, 1.5)
+    end
+  else
+    for k = 0, 5 do
+      local a = (k / 6) * math.pi * 2
+      local rx = math.cos(a) * 30
+      local ry = math.sin(a) * 11
+      love.graphics.setColor(color[1], color[2], color[3], 0.40)
+      love.graphics.circle("fill", sx + rx, sy + 2 + ry, 1.2)
+    end
+  end
+  -- When the player is on the pad, add a strong concentric ripple
+  -- so the response is unmistakable — this is YOUR step, on YOUR
+  -- pad, doing something.
+  if active then
+    for r = 0, 2 do
+      local ph = (t * 1.6 + r * 0.33) % 1
+      local rad = 14 + ph * 30
+      love.graphics.setColor(color[1], color[2], color[3], (1 - ph) * 0.55)
+      love.graphics.setLineWidth(2)
+      love.graphics.ellipse("line", sx, sy + 2, rad * 1.0, rad * 0.36)
+    end
+    love.graphics.setLineWidth(1)
   end
 end
 
