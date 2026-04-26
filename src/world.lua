@@ -14,6 +14,7 @@ local Assets     = require "src.assets"
 local Cosmetics  = require "src.cosmetics"
 local Coin       = require "src.coin"
 local Audio      = require "src.audio"
+local MiracleFx  = require "src.miracle_fx"
 local minersDb   = require "src.miners"
 local energyDb   = require "src.energy"
 
@@ -745,6 +746,10 @@ function M.draw(world, state, fonts, t)
     love.graphics.points(sx, sy)
   end
 
+  -- Miracle SKY phase — drawn in screen space behind the iso world
+  -- so e.g. mountains appear as a horizon and rain falls behind racks.
+  MiracleFx.drawSky(state, t)
+
   -- Camera transform
   love.graphics.push()
   love.graphics.translate(CAMERA.sx, CAMERA.sy)
@@ -803,6 +808,24 @@ function M.draw(world, state, fonts, t)
       depth = Iso.depth(pc.char.wx, pc.char.wy + 0.05, 0) })
   end
 
+  -- Monoliths — one entry per owned monolith, arranged in a row at
+  -- the very top of the plot (north of the miner racks). Each gets
+  -- its own world position so they read as a horizon of obelisks.
+  if (state.monoliths or 0) > 0 then
+    local count = state.monoliths
+    -- Spread monoliths across the full plot width on a thin row
+    for i = 1, math.min(count, 14) do
+      local frac = (i - 0.5) / math.max(1, math.min(count, 14))
+      local mx = 1 + frac * (PLOT_W - 2)
+      local my = 0.5
+      table.insert(entities, {
+        kind = "monolith",
+        wx = mx, wy = my,
+        depth = Iso.depth(mx, my, 0) - 5,  -- behind characters/canisters
+      })
+    end
+  end
+
   -- Self-planted flags
   if world.flags then
     for _, fl in ipairs(world.flags) do
@@ -854,6 +877,9 @@ function M.draw(world, state, fonts, t)
       Char.draw(e.char, t)
     elseif e.kind == "peer" then
       Char.draw(e.char, t)
+    elseif e.kind == "monolith" then
+      local sx, sy = Iso.toScreen(e.wx, e.wy, 0)
+      Assets.drawMonolith(sx, sy, t)
     elseif e.kind == "flag" or e.kind == "peer_flag" then
       local fl = e.flag
       local sx, sy = Iso.toScreen(fl.wx, fl.wy, 0)
@@ -892,6 +918,10 @@ function M.draw(world, state, fonts, t)
   end
 
   love.graphics.pop()
+
+  -- Miracle POST phase — particles + fireflies + angels in screen
+  -- space on top of the iso plot, but beneath the HUD chrome.
+  MiracleFx.drawPost(state, t)
 
   -- Top label strip — reuse HUD-like top bar but tinted differently
   love.graphics.setColor(0.025, 0.05, 0.04, 0.92)

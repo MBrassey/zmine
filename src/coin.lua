@@ -150,4 +150,71 @@ function M.drawCentered(cx, cy, size, t, value, font, color, opts)
   M.drawWithLabel(cx - total / 2, cy, size, t, value, f, color, opts)
 end
 
+-- BTC coin variant — orange ₿ glyph.
+function M.drawBTC(sx, sy, size, t, opts)
+  opts = opts or {}
+  size = size or 14
+  local cR, cG, cB = 1.00, 0.65, 0.20
+  local pulse = 0.85 + math.sin(t * 2.4) * 0.15
+
+  -- Outer glow
+  for r = 5, 0, -1 do
+    love.graphics.setColor(cR, cG, cB, (1 - r/6) * 0.22 * pulse)
+    love.graphics.circle("fill", sx, sy, size * (1.05 + r * 0.10))
+  end
+  -- Coin body
+  for r = 0, 4 do
+    local k = r / 4
+    love.graphics.setColor(cR * (0.50 + k * 0.40), cG * (0.40 + k * 0.40), cB * (0.30 + k * 0.40), 1)
+    love.graphics.circle("fill", sx, sy, size * (1 - r * 0.15))
+  end
+  -- Outer rim
+  love.graphics.setColor(cR, cG * 0.85, cB * 0.55, 1)
+  love.graphics.setLineWidth(math.max(1.2, size * 0.10))
+  love.graphics.circle("line", sx, sy, size)
+  love.graphics.setLineWidth(1)
+
+  -- ₿ glyph: B with two horizontal bars sticking out top and bottom
+  local s = size * 0.55
+  local bx = sx - s * 0.5
+  local by = sy
+  love.graphics.setLineWidth(math.max(1.5, size * 0.16))
+  -- Drop shadow
+  love.graphics.setColor(0, 0, 0, 0.55)
+  love.graphics.line(bx + 1, by - s + 1, bx + 1, by + s + 1)
+  love.graphics.setColor(0, 0, 0, 0.55)
+  -- Bright fill
+  love.graphics.setColor(0.98, 0.98, 0.92, 1)
+  -- Vertical stem
+  love.graphics.line(bx, by - s, bx, by + s)
+  -- Top loop (round bump on right)
+  love.graphics.arc("line", "open", bx + s * 0.55, by - s * 0.45,
+    s * 0.55, math.pi * 1.5, math.pi * 0.5)
+  -- Bottom loop
+  love.graphics.arc("line", "open", bx + s * 0.55, by + s * 0.45,
+    s * 0.55, math.pi * 1.5, math.pi * 0.5)
+  -- Two short verticals above and below
+  love.graphics.line(bx - s * 0.25, by - s - s * 0.30, bx - s * 0.25, by - s + s * 0.30)
+  love.graphics.line(bx + s * 0.25, by - s - s * 0.30, bx + s * 0.25, by - s + s * 0.30)
+  love.graphics.line(bx - s * 0.25, by + s - s * 0.30, bx - s * 0.25, by + s + s * 0.30)
+  love.graphics.line(bx + s * 0.25, by + s - s * 0.30, bx + s * 0.25, by + s + s * 0.30)
+  love.graphics.setLineWidth(1)
+
+  -- Specular highlight
+  love.graphics.setColor(1, 1, 1, 0.30)
+  love.graphics.arc("fill", "open", sx - size * 0.30, sy - size * 0.30,
+                    size * 0.32, math.pi * 1.1, math.pi * 1.6)
+
+  -- Sparkles
+  if size >= 8 then
+    for k = 0, 3 do
+      local a = (t * 1.2 + k / 4) * math.pi * 2
+      local rx = math.cos(a) * size * 1.30
+      local ry = math.sin(a) * size * 1.30
+      love.graphics.setColor(cR, cG, cB, 0.60)
+      love.graphics.circle("fill", sx + rx, sy + ry, size * 0.07)
+    end
+  end
+end
+
 return M

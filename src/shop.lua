@@ -2,6 +2,8 @@ local fmt = require "src.format"
 local minersDb = require "src.miners"
 local energyDb = require "src.energy"
 local upgradesDb = require "src.upgrades"
+local Monoliths = require "src.monoliths"
+local MiraclesDb = require "src.miracles"
 local Network = require "src.network"
 local Coin = require "src.coin"
 
@@ -12,7 +14,7 @@ local DESIGN_W, DESIGN_H = 1920, 1080
 local PANEL = { x = 1232, y = 116, w = 668, h = 900 }
 local TAB_H = 56
 local LIST_PAD = 12
-local CARD_H = { miners = 168, energy = 168, upgrades = 124 }
+local CARD_H = { miners = 168, energy = 168, upgrades = 124, zeptons = 110 }
 
 local function inRect(mx, my, x, y, w, h)
   return mx >= x and mx <= x + w and my >= y and my <= y + h
@@ -21,7 +23,7 @@ end
 function M.new()
   local s = {
     tab = "miners",
-    scroll = { miners = 0, energy = 0, upgrades = 0, network = 0 },
+    scroll = { miners = 0, energy = 0, upgrades = 0, network = 0, zeptons = 0 },
     hoverKey = nil,
   }
   return s
@@ -38,6 +40,7 @@ local function drawTabs(shop, fonts)
   local tabs = {
     { id = "miners",   label = "MINERS"   },
     { id = "energy",   label = "ENERGY"   },
+    { id = "zeptons",  label = "ZEPTONS"  },
     { id = "upgrades", label = "RESEARCH" },
     { id = "network",  label = "NETWORK"  },
   }
@@ -853,6 +856,238 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
   end
 end
 
+local function drawZeptonsCard(shop, def, x, y, w, h, state, fonts, t, mx, my)
+  local hover = inRect(mx, my, x, y, w, h)
+  if hover then shop.hoverKey = def.key end
+
+  local isMonolith = (def.kind == "monolith")
+  local isMiracle = (def.kind == "miracle")
+  local active = false
+  local remaining = 0
+  if isMiracle then
+    local exp = state.active_miracles and state.active_miracles[def.miracle.key]
+    if exp and exp > love.timer.getTime() then
+      active = true
+      remaining = exp - love.timer.getTime()
+    end
+  end
+
+  -- Background
+  if active then
+    love.graphics.setColor(0.10, 0.04, 0.18, 1)
+  elseif hover then
+    love.graphics.setColor(0.08, 0.10, 0.06, 1)
+  else
+    love.graphics.setColor(0.05, 0.07, 0.05, 1)
+  end
+  love.graphics.rectangle("fill", x, y, w, h, 6, 6)
+  local accent = isMonolith and Monoliths.def.color or def.miracle.color
+  love.graphics.setColor(accent[1], accent[2], accent[3], hover and 0.95 or 0.60)
+  love.graphics.setLineWidth(active and 3 or 2)
+  love.graphics.rectangle("line", x, y, w, h, 6, 6)
+  love.graphics.setLineWidth(1)
+
+  -- Icon block
+  local iconW = 80
+  love.graphics.setColor(accent[1] * 0.20, accent[2] * 0.20, accent[3] * 0.20, 1)
+  love.graphics.rectangle("fill", x + 8, y + 8, iconW, h - 16, 4, 4)
+
+  if isMonolith then
+    -- Mini-monolith inside the icon block
+    require("src.assets").drawMonolith(x + 8 + iconW / 2, y + h - 18, t,
+      { h = h - 36, w = 12, eyeColor = accent })
+  else
+    -- Miracle icon: stylized pulse + sparkle
+    local cxx, cyy = x + 8 + iconW / 2, y + 8 + (h - 16) / 2
+    for r = 22, 0, -1 do
+      love.graphics.setColor(accent[1], accent[2], accent[3], (1 - r/22) * 0.18)
+      love.graphics.circle("fill", cxx, cyy, r)
+    end
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+    love.graphics.circle("fill", cxx, cyy, 6)
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.circle("fill", cxx, cyy, 2.5)
+    -- Orbiting sparkles
+    for k = 0, 4 do
+      local a = t * 1.2 + k * (math.pi * 2 / 5)
+      love.graphics.setColor(accent[1], accent[2], accent[3], 0.85)
+      love.graphics.circle("fill", cxx + math.cos(a) * 18, cyy + math.sin(a) * 18, 1.4)
+    end
+  end
+
+  local tx = x + 8 + iconW + 14
+
+  -- Title
+  love.graphics.setFont(fonts.bold)
+  love.graphics.setColor(0.95, 1, 0.92, 1)
+  love.graphics.print(def.name, tx, y + 10)
+
+  -- Subtitle (category / state info)
+  love.graphics.setFont(fonts.tiny)
+  if isMonolith then
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
+    love.graphics.print(string.format("OWNED %d  ·  %.2f Z/s each",
+      state.monoliths or 0, Monoliths.def.produce_zps), tx, y + 38)
+  else
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
+    if active then
+      love.graphics.print(string.format("ACTIVE  —  %ds remaining", math.floor(remaining)),
+        tx, y + 38)
+    else
+      love.graphics.print(string.format("%s · %d sec",
+        def.miracle.category:upper(), def.miracle.duration), tx, y + 38)
+    end
+  end
+
+  -- Description
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.75, 0.85, 0.75, 0.95)
+  love.graphics.printf(def.desc, tx, y + 56, w - iconW - 180, "left")
+
+  -- Cost button (right side)
+  local btnW, btnH = 140, 56
+  local bx = x + w - btnW - 12
+  local by = y + h - btnH - 12
+
+  local cost, currency, currencyColor, currencyAvail
+  if isMonolith then
+    cost = Monoliths.unitCost(state.monoliths or 0)
+    currency = "BTC"
+    currencyColor = { 1, 0.85, 0.40 }
+    currencyAvail = (state.z or 0) >= cost
+  else
+    cost = def.miracle.cost
+    currency = "Z"
+    currencyColor = { 0.55, 1, 0.75 }
+    currencyAvail = (state.zeptons or 0) >= cost
+  end
+
+  if active then
+    love.graphics.setColor(0.20, 0.10, 0.30, 1)
+    love.graphics.rectangle("fill", bx, by, btnW, btnH, 5, 5)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", bx, by, btnW, btnH, 5, 5)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+    love.graphics.printf("ACTIVE", bx, by + 16, btnW, "center")
+    return nil
+  end
+
+  if hover then
+    love.graphics.setColor(currencyAvail and 0.25 or 0.10, currencyAvail and 0.20 or 0.10, currencyAvail and 0.10 or 0.05, 1)
+  else
+    love.graphics.setColor(currencyAvail and 0.18 or 0.06, currencyAvail and 0.14 or 0.06, currencyAvail and 0.06 or 0.04, 1)
+  end
+  love.graphics.rectangle("fill", bx, by, btnW, btnH, 5, 5)
+  love.graphics.setColor(currencyAvail and accent[1] or accent[1] * 0.5,
+                         currencyAvail and accent[2] or accent[2] * 0.5,
+                         currencyAvail and accent[3] or accent[3] * 0.5, 1)
+  love.graphics.setLineWidth(2)
+  love.graphics.rectangle("line", bx, by, btnW, btnH, 5, 5)
+  love.graphics.setLineWidth(1)
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(currencyAvail and accent[1] or 0.55,
+                         currencyAvail and accent[2] or 0.55,
+                         currencyAvail and accent[3] or 0.55, 1)
+  love.graphics.print(isMonolith and "RAISE" or "INVOKE", bx + 10, by + 6)
+
+  -- Cost with currency icon
+  local coinSize = 9
+  local costStr = fmt.zeptons(cost) .. " " .. currency
+  if isMonolith then
+    Coin.drawBTC(bx + 16, by + 38, coinSize, t)
+  else
+    Coin.draw(bx + 16, by + 38, coinSize, t)
+  end
+  love.graphics.setFont(fonts.bold)
+  love.graphics.setColor(currencyAvail and currencyColor[1] or 0.55,
+                         currencyAvail and currencyColor[2] or 0.55,
+                         currencyAvail and currencyColor[3] or 0.55, 1)
+  love.graphics.printf(fmt.zeptons(cost), bx + 28, by + 30, btnW - 38, "right")
+
+  return {
+    kind = isMonolith and "buy_monolith" or "invoke_miracle",
+    miracle_def = isMiracle and def.miracle or nil,
+    x = bx, y = by, w = btnW, h = btnH,
+  }
+end
+
+local function drawZeptonsTab(shop, state, fonts, t, mx, my)
+  local lay = listAreaY()
+  local lah = listAreaH()
+  local cardW = PANEL.w - 24
+  local startX = PANEL.x + 12
+  local cardH = CARD_H.zeptons
+
+  -- Build a flat list with synthetic _category entries.
+  local list = {}
+  table.insert(list, { _category = "MONOLITH" })
+  table.insert(list, {
+    kind = "monolith",
+    name = Monoliths.def.name,
+    desc = Monoliths.def.desc,
+  })
+  for _, c in ipairs(MiraclesDb.categories) do
+    table.insert(list, { _category = "MIRACLE · " .. c.name })
+    for _, mdef in ipairs(c.items) do
+      table.insert(list, {
+        kind = "miracle",
+        name = mdef.name,
+        desc = mdef.desc,
+        miracle = mdef,
+      })
+    end
+  end
+
+  local subheadH = 26
+  local realTotal = 0
+  for _, def in ipairs(list) do
+    if def._category then realTotal = realTotal + subheadH + 4
+    else realTotal = realTotal + cardH + LIST_PAD end
+  end
+  shop.scroll[shop.tab] = shop.scroll[shop.tab] or 0
+  local maxScroll = math.max(0, realTotal - lah)
+  if shop.scroll[shop.tab] > maxScroll then shop.scroll[shop.tab] = maxScroll end
+  if shop.scroll[shop.tab] < 0 then shop.scroll[shop.tab] = 0 end
+  local scroll = shop.scroll[shop.tab]
+
+  scissorList()
+  local cursorY = lay - scroll
+  for i, def in ipairs(list) do
+    if def._category then
+      if cursorY + subheadH > lay - subheadH and cursorY < lay + lah then
+        love.graphics.setColor(0.06, 0.10, 0.13, 1)
+        love.graphics.rectangle("fill", startX, cursorY, cardW, subheadH, 4, 4)
+        love.graphics.setColor(0.55, 0.85, 0.95, 0.50)
+        love.graphics.rectangle("line", startX, cursorY, cardW, subheadH, 4, 4)
+        love.graphics.setFont(fonts.tiny)
+        love.graphics.setColor(0.55, 0.95, 1.0, 1)
+        love.graphics.print(def._category, startX + 10, cursorY + 7)
+      end
+      cursorY = cursorY + subheadH + 4
+    else
+      if cursorY + cardH > lay - cardH and cursorY < lay + lah + cardH then
+        local btn = drawZeptonsCard(shop, def, startX, cursorY, cardW, cardH, state, fonts, t, mx, my)
+        if btn then table.insert(shop._buttons, btn) end
+      end
+      cursorY = cursorY + cardH + LIST_PAD
+    end
+  end
+  love.graphics.setScissor()
+
+  if maxScroll > 0 then
+    local trackX = PANEL.x + PANEL.w - 8
+    love.graphics.setColor(0.05, 0.10, 0.07, 1)
+    love.graphics.rectangle("fill", trackX, lay, 4, lah, 2, 2)
+    local thumbH = math.max(40, lah * (lah / realTotal))
+    local thumbY = lay + (lah - thumbH) * (scroll / maxScroll)
+    love.graphics.setColor(0.55, 0.85, 0.95, 0.85)
+    love.graphics.rectangle("fill", trackX, thumbY, 4, thumbH, 2, 2)
+  end
+end
+
 function M.draw(shop, state, fonts, t, mx, my)
   drawPanelBg()
   drawTabs(shop, fonts)
@@ -862,6 +1097,10 @@ function M.draw(shop, state, fonts, t, mx, my)
 
   if shop.tab == "network" then
     drawNetworkPanel(shop, state, fonts, t, mx, my)
+    return
+  end
+  if shop.tab == "zeptons" then
+    drawZeptonsTab(shop, state, fonts, t, mx, my)
     return
   end
 
@@ -1005,6 +1244,12 @@ function M.mousepressed(shop, lx, ly, button, state, callbacks, mods)
           if callbacks.onAcceptPool then callbacks.onAcceptPool(b.target_id) end
         elseif b.kind == "decline_pool" then
           if callbacks.onDeclinePool then callbacks.onDeclinePool(b.target_id) end
+        elseif b.kind == "buy_monolith" then
+          if callbacks.onBuyMonolith then callbacks.onBuyMonolith(qty) end
+        elseif b.kind == "invoke_miracle" then
+          if callbacks.onInvokeMiracle and b.miracle_def then
+            callbacks.onInvokeMiracle(b.miracle_def)
+          end
         end
         return true
       end

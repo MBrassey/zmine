@@ -44,28 +44,49 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.85, 1, 0.92, 1)
   love.graphics.print(state.facility_name or "—", 30, 36)
 
-  -- Section: zepton balance (center-left) — with glowy Z-coin
+  -- Section: BITCOIN balance (center-left) — orange ₿ coin.
+  -- The internal field state.z is the working currency; in this
+  -- economy that's BITCOIN. Zeptons are a separate rare currency
+  -- displayed to the right.
   local zx = 540
   love.graphics.setFont(fonts.small)
-  love.graphics.setColor(0.35, 0.95, 0.55, 1)
-  love.graphics.print("ZEPTONS", zx, 14)
+  love.graphics.setColor(1.00, 0.65, 0.20, 1)
+  love.graphics.print("BITCOIN", zx, 14)
 
-  -- Big animated coin
-  Coin.draw(zx + 26, 56, 22, t)
+  -- BTC coin (orange ₿)
+  Coin.drawBTC(zx + 26, 56, 22, t)
 
   love.graphics.setFont(fonts.giant)
   local s = fmt.zeptons(state.z)
-  love.graphics.setColor(0.35, 1, 0.6, 0.30)
+  love.graphics.setColor(1, 0.75, 0.30, 0.30)
   love.graphics.print(s, zx + 60 + 2, 32 + 2)
-  love.graphics.setColor(0.55, 1, 0.75, 1)
+  love.graphics.setColor(1, 0.85, 0.40, 1)
   love.graphics.print(s, zx + 60, 32)
 
   -- Rate beside balance
   love.graphics.setFont(fonts.medium)
-  local rateStr = "+" .. fmt.rate(state.z_per_sec)
+  local rateStr = "+" .. fmt.rate(state.z_per_sec) .. " ₿"
   local zw = fonts.giant:getWidth(s)
-  love.graphics.setColor(0.50, 0.95, 0.65, 1)
+  love.graphics.setColor(1, 0.80, 0.35, 1)
   love.graphics.print(rateStr, zx + 60 + zw + 18, 56)
+
+  -- Zeptons sub-block under the BTC rate (rare apex resource)
+  local zptX = zx + 60 + zw + 18
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.30, 1.00, 0.55, 1)
+  love.graphics.print("ZEPTONS", zptX, 14)
+  love.graphics.setFont(fonts.bold)
+  -- Glowing green Z-coin alongside the value
+  Coin.draw(zptX + 10, 36, 9, t)
+  local zptStr = fmt.zeptons(state.zeptons or 0)
+  love.graphics.setColor(0.55, 1, 0.75, 1)
+  love.graphics.print(zptStr, zptX + 26, 28)
+  if (state.zeptons_per_sec or 0) > 0 then
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.45, 0.95, 0.65, 0.95)
+    love.graphics.print(string.format("+%.2f Z/s", state.zeptons_per_sec),
+      zptX, 78)
+  end
 
   -- Section: energy
   local ex = 1100

@@ -28,10 +28,16 @@ function M.save(state)
     miners        = state.miners,
     energy        = state.energy,
     upgrades      = state.upgrades,
-    block_height  = state.block_height,
-    blocks_found  = state.blocks_found,
-    last_block_at = state.last_block_at,
-    cosmetics     = state.cosmetics,
+    block_height      = state.block_height,
+    blocks_found      = state.blocks_found,
+    last_block_at     = state.last_block_at,
+    cosmetics         = state.cosmetics,
+    zeptons           = state.zeptons,
+    zeptons_lifetime  = state.zeptons_lifetime,
+    monoliths         = state.monoliths,
+    miracles_invoked  = state.miracles_invoked,
+    -- active_miracles intentionally NOT saved — they're temporary
+    -- and should expire across sessions.
     network       = state.network and {
       pool_with               = state.network.pool_with,
       boostCount              = state.network.boostCount,

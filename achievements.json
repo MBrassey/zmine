@@ -314,6 +314,87 @@
       "glyph": "✦",
       "points": 25,
       "rarity": "uncommon"
+    },
+    {
+      "key": "first_monolith",
+      "title": "Stargate",
+      "description": "Raise your first zepton monolith.",
+      "glyph": "▮",
+      "points": 25,
+      "rarity": "uncommon"
+    },
+    {
+      "key": "ten_monoliths",
+      "title": "Henge",
+      "description": "Raise 10 zepton monoliths.",
+      "glyph": "▮▮",
+      "points": 75,
+      "rarity": "rare"
+    },
+    {
+      "key": "first_zepton_drop",
+      "title": "First Drop",
+      "description": "Absorb your first zepton.",
+      "glyph": "Z",
+      "points": 15,
+      "rarity": "common"
+    },
+    {
+      "key": "zepton_100",
+      "title": "Apex Resource",
+      "description": "Hold 100 zeptons at once.",
+      "glyph": "Z",
+      "points": 50,
+      "rarity": "rare"
+    },
+    {
+      "key": "zepton_1k",
+      "title": "Reservoir",
+      "description": "Hold 1,000 zeptons at once.",
+      "glyph": "Z",
+      "points": 100,
+      "rarity": "legendary"
+    },
+    {
+      "key": "first_miracle",
+      "title": "Miracle Worker",
+      "description": "Invoke your first miracle.",
+      "glyph": "✦",
+      "points": 25,
+      "rarity": "uncommon"
+    },
+    {
+      "key": "ten_miracles",
+      "title": "Wonder Wright",
+      "description": "Invoke 10 miracles.",
+      "glyph": "✦",
+      "points": 60,
+      "rarity": "rare"
+    },
+    {
+      "key": "miracle_apex",
+      "title": "Singularity Touched",
+      "description": "Invoke the Singularity Touch miracle.",
+      "glyph": "Ω",
+      "points": 200,
+      "rarity": "legendary",
+      "hidden": true
+    },
+    {
+      "key": "btc_1m",
+      "title": "Megabyte",
+      "description": "Accumulate 1,000,000 BTC.",
+      "glyph": "₿",
+      "points": 30,
+      "rarity": "uncommon"
+    },
+    {
+      "key": "btc_1b",
+      "title": "Whale",
+      "description": "Accumulate 1,000,000,000 BTC.",
+      "glyph": "₿",
+      "points": 80,
+      "rarity": "rare"
     }
   ]
 }

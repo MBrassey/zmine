@@ -17,6 +17,8 @@ local Network    = require "src.network"
 local World      = require "src.world"
 local Cosmetics  = require "src.cosmetics"
 local Console    = require "src.console"
+local Monoliths  = require "src.monoliths"
+local Miracles   = require "src.miracles"
 
 local M = {}
 
@@ -40,20 +42,30 @@ local function freshState()
   local energy = {}
   for _, def in ipairs(energyDb.list) do energy[def.key] = 0 end
   return {
-    facility_name = nil,
-    facility_seed = love.math.random(0, 0xFFFFFFFF),
-    z             = 0,
-    z_lifetime    = 0,
-    z_clicked     = 0,
-    click_count   = 0,
-    play_time     = 0,
-    miners        = miners,
-    energy        = energy,
-    upgrades      = {},
-    block_height  = 0,
-    blocks_found  = 0,
-    last_block_at = 0,
-    cosmetics     = Cosmetics.fresh(),
+    facility_name      = nil,
+    facility_seed      = love.math.random(0, 0xFFFFFFFF),
+    -- state.z is the working currency (BITCOIN). Kept under the legacy
+    -- name to preserve save compatibility — every cost in the game
+    -- (miners, energy, upgrades, monoliths) is paid in BTC.
+    z                  = 0,
+    z_lifetime         = 0,
+    z_clicked          = 0,
+    -- Zeptons: the rare apex resource. Only monoliths produce them;
+    -- only miracles consume them.
+    zeptons            = 0,
+    zeptons_lifetime   = 0,
+    monoliths          = 0,
+    active_miracles    = {},  -- key -> expires_at (love.timer.getTime())
+    miracles_invoked   = 0,
+    click_count        = 0,
+    play_time          = 0,
+    miners             = miners,
+    energy             = energy,
+    upgrades           = {},
+    block_height       = 0,
+    blocks_found       = 0,
+    last_block_at      = 0,
+    cosmetics          = Cosmetics.fresh(),
   }
 end
 
@@ -64,12 +76,17 @@ local function ensureCompleteState(s)
   for _, def in ipairs(energyDb.list) do
     s.energy[def.key] = s.energy[def.key] or 0
   end
-  s.upgrades       = s.upgrades or {}
-  s.facility_seed  = s.facility_seed or love.math.random(0, 0xFFFFFFFF)
-  s.block_height   = s.block_height or 0
-  s.blocks_found   = s.blocks_found or 0
-  s.last_block_at  = s.last_block_at or 0
-  s.cosmetics      = s.cosmetics or Cosmetics.fresh()
+  s.upgrades         = s.upgrades or {}
+  s.facility_seed    = s.facility_seed or love.math.random(0, 0xFFFFFFFF)
+  s.block_height     = s.block_height or 0
+  s.blocks_found     = s.blocks_found or 0
+  s.last_block_at    = s.last_block_at or 0
+  s.cosmetics        = s.cosmetics or Cosmetics.fresh()
+  s.zeptons          = s.zeptons or 0
+  s.zeptons_lifetime = s.zeptons_lifetime or 0
+  s.monoliths        = s.monoliths or 0
+  s.active_miracles  = s.active_miracles or {}
+  s.miracles_invoked = s.miracles_invoked or 0
   s.cosmetics.equipped = s.cosmetics.equipped or {}
   s.cosmetics.locked   = s.cosmetics.locked   or {}
   s.cosmetics.earned   = s.cosmetics.earned   or {}
@@ -385,6 +402,17 @@ local function checkAchievements(state)
     end
   end
 
+  -- Monolith + Zepton + Miracle achievements (the apex economy layer)
+  if (state.monoliths or 0) >= 1   and not earned.first_monolith    then tryAchievement(state, "first_monolith") end
+  if (state.monoliths or 0) >= 10  and not earned.ten_monoliths     then tryAchievement(state, "ten_monoliths") end
+  if (state.zeptons_lifetime or 0) > 0 and not earned.first_zepton_drop then tryAchievement(state, "first_zepton_drop") end
+  if (state.zeptons or 0) >= 100   and not earned.zepton_100        then tryAchievement(state, "zepton_100") end
+  if (state.zeptons or 0) >= 1000  and not earned.zepton_1k         then tryAchievement(state, "zepton_1k") end
+  if (state.miracles_invoked or 0) >= 1  and not earned.first_miracle then tryAchievement(state, "first_miracle") end
+  if (state.miracles_invoked or 0) >= 10 and not earned.ten_miracles  then tryAchievement(state, "ten_miracles") end
+  if (state.z_lifetime or 0) >= 1e6 and not earned.btc_1m then tryAchievement(state, "btc_1m") end
+  if (state.z_lifetime or 0) >= 1e9 and not earned.btc_1b then tryAchievement(state, "btc_1b") end
+
   -- Block / network related
   if (state.blocks_found or 0) >= 1 and not earned.first_block then tryAchievement(state, "first_block") end
   if (state.blocks_found or 0) >= 10 and not earned.ten_blocks then tryAchievement(state, "ten_blocks") end
@@ -453,10 +481,15 @@ function M.new(opts)
     state.miners        = data.miners or state.miners
     state.energy        = data.energy or state.energy
     state.upgrades      = data.upgrades or {}
-    state.block_height  = data.block_height or 0
-    state.blocks_found  = data.blocks_found or 0
-    state.last_block_at = data.last_block_at or 0
-    state.cosmetics     = data.cosmetics or Cosmetics.fresh()
+    state.block_height     = data.block_height or 0
+    state.blocks_found     = data.blocks_found or 0
+    state.last_block_at    = data.last_block_at or 0
+    state.cosmetics        = data.cosmetics or Cosmetics.fresh()
+    state.zeptons          = data.zeptons or 0
+    state.zeptons_lifetime = data.zeptons_lifetime or 0
+    state.monoliths        = data.monoliths or 0
+    state.miracles_invoked = data.miracles_invoked or 0
+    state.active_miracles  = data.active_miracles or {}
     ensureCompleteState(state)
   end
 
@@ -563,9 +596,13 @@ function M.update(state, dt, fonts)
     return
   end
 
-  -- Speed multiplier
-  if state.mods and state.mods.speed > 0 then
-    effDt = effDt * (1 + state.mods.speed)
+  -- Speed multiplier (from upgrades + active miracles)
+  local speedBoost = (state.mods and state.mods.speed) or 0
+  if state._mir and state._mir.speed_mult then
+    speedBoost = speedBoost + (state._mir.speed_mult - 1)
+  end
+  if speedBoost > 0 then
+    effDt = effDt * (1 + speedBoost)
   end
 
   state._lastDt = effDt
@@ -596,11 +633,45 @@ function M.update(state, dt, fonts)
   -- Recompute production every frame (cheap)
   recompute(state, love.timer.getTime())
 
-  -- Earn zeptons over time
-  local earn = state.z_per_sec * effDt
-  if earn > 0 then
-    state.z = state.z + earn
-    state.z_lifetime = (state.z_lifetime or 0) + earn
+  -- Compute active-miracle modifier bag once per tick.
+  state._mir = state._mir or {}
+  local mir = state._mir
+  for k in pairs(mir) do mir[k] = nil end
+  do
+    local now = love.timer.getTime()
+    for key, expiresAt in pairs(state.active_miracles or {}) do
+      if expiresAt and expiresAt > now then
+        local mod = Miracles.modifierFor(key)
+        for k, v in pairs(mod) do
+          if k:match("_mult$") then mir[k] = math.max(mir[k] or 1, v)
+          else mir[k] = (mir[k] or 0) + v end
+        end
+      else
+        state.active_miracles[key] = nil
+      end
+    end
+  end
+
+  -- Earn BTC over time. state.z is the working currency (display: BTC).
+  local btcEarn = state.z_per_sec * effDt * (mir.btc_mult or 1)
+  if mir.hash_mult and mir.hash_mult > 1 then
+    btcEarn = btcEarn * mir.hash_mult
+  end
+  if btcEarn > 0 then
+    state.z = state.z + btcEarn
+    state.z_lifetime = (state.z_lifetime or 0) + btcEarn
+  end
+
+  -- Earn zeptons from monoliths. Monoliths are the ONLY source of
+  -- zeptons in the game; their absorption rate can be doubled by the
+  -- monolith_pulse miracle.
+  local zps = (state.monoliths or 0) * Monoliths.def.produce_zps
+                * (mir.monolith_mult or 1)
+  state.zeptons_per_sec = zps
+  local zEarn = zps * effDt
+  if zEarn > 0 then
+    state.zeptons = (state.zeptons or 0) + zEarn
+    state.zeptons_lifetime = (state.zeptons_lifetime or 0) + zEarn
   end
 
   -- Hold-to-mine: continuous click pulse
@@ -1085,6 +1156,98 @@ function M.plantFlag(state)
   M.message(state, "Flag planted", { 0.55, 1, 0.75 })
 end
 
+function M.buyMonolith(state, qty, silent)
+  if state.scene ~= "play" and state.scene ~= "world" then return end
+  qty = qty or 1
+  local owned = state.monoliths or 0
+  -- Reduce qty if not affordable
+  while qty > 0 do
+    local total = 0
+    for i = 0, qty - 1 do
+      total = total + math.floor(Monoliths.def.cost * (Monoliths.def.growth ^ (owned + i)))
+    end
+    if total <= state.z then break end
+    qty = qty - 1
+  end
+  if qty <= 0 then if not silent then Audio.error_() end; return end
+  local total = 0
+  for i = 0, qty - 1 do
+    total = total + math.floor(Monoliths.def.cost * (Monoliths.def.growth ^ (owned + i)))
+  end
+  state.z = state.z - total
+  state.monoliths = owned + qty
+  if not silent then
+    Audio.tier()
+    Audio.duckHum(0.55, 600)
+    local hex = "#cc1820"
+    Fx.flash(hex, 320, 0.70)
+    Fx.glow(hex, 0.75, 900)
+    Fx.shatter(0.40, 600)
+    Fx.shake(0.25, 220)
+    if owned == 0 then
+      -- First monolith — bigger event
+      Fx.zoom(0.05, 480)
+      Fx.invert(160)
+      M.message(state, "✦ FIRST MONOLITH RAISED — zeptons begin to flow",
+        Monoliths.def.color)
+    else
+      M.message(state, string.format("Monolith raised (#%d)", owned + qty),
+        Monoliths.def.color)
+    end
+  end
+  recompute(state, love.timer.getTime())
+end
+
+local function tryAch(state, key)
+  if state._earned and not state._earned[key] then
+    state._earned[key] = { key = key, points = 0, fresh = true }
+    Ach.unlock(key)
+    Audio.achievement()
+  end
+end
+
+function M.invokeMiracle(state, def)
+  if state.scene ~= "play" and state.scene ~= "world" then return end
+  if not def then return end
+  local cost = def.cost or 0
+  if (state.zeptons or 0) < cost then
+    Audio.error_()
+    M.message(state, "Not enough zeptons", { 1, 0.55, 0.55 })
+    return
+  end
+  state.zeptons = state.zeptons - cost
+  state.miracles_invoked = (state.miracles_invoked or 0) + 1
+  state.active_miracles = state.active_miracles or {}
+  -- If already active, REFRESH instead of stacking — duration resets.
+  state.active_miracles[def.key] = love.timer.getTime() + (def.duration or 60)
+  Audio.achievement()
+  Audio.duckHum(0.50, 700)
+  local hex = string.format("#%02x%02x%02x",
+    math.floor(def.color[1] * 255), math.floor(def.color[2] * 255), math.floor(def.color[3] * 255))
+  Fx.flash(hex, 380, 0.90)
+  Fx.glow(hex, 0.85, 1100)
+  Fx.shatter(0.45, 700)
+  Fx.zoom(0.06, 540)
+  Fx.mood(hex, 0.20)
+  M.message(state, "✦ MIRACLE — " .. def.name .. " (" .. math.floor((def.duration or 0) / 60) .. " min)",
+    def.color)
+  local cx, cy = Facility.coreCenter()
+  state.floats:emit({
+    x = cx - 140, y = cy - 110,
+    text = "✦ " .. def.name,
+    color = def.color, size = 1.8, weight = "bold",
+    life = 3.0, vy = -100,
+  })
+  state.particles:burst({
+    x = cx, y = cy, n = 120,
+    color = def.color, minSpeed = 200, maxSpeed = 800,
+    life = 2.0, size = 5, kind = "trail",
+  })
+  if def.key == "singularity" then
+    tryAch(state, "miracle_apex")
+  end
+end
+
 function M.boost(state, target_id)
   if state.scene ~= "play" then return end
   -- Cost: 5% of current Z, min 25
@@ -1458,8 +1621,10 @@ function M.mousepressed(state, lx, ly, button)
       onBoost       = function(id) M.boost(state, id) end,
       onPool        = function(id) M.joinPool(state, id) end,
       onLeavePool   = function() M.leavePool(state) end,
-      onAcceptPool  = function(id) M.acceptPool(state, id) end,
-      onDeclinePool = function(id) M.declinePool(state, id) end,
+      onAcceptPool   = function(id) M.acceptPool(state, id) end,
+      onDeclinePool  = function(id) M.declinePool(state, id) end,
+      onBuyMonolith  = function(qty) M.buyMonolith(state, qty or 1) end,
+      onInvokeMiracle = function(def) M.invokeMiracle(state, def) end,
     }, mods)
   end
 end
@@ -1561,8 +1726,10 @@ function M.keypressed(state, key)
   elseif key == "2" then
     Shop.setTab(state.shop, "energy"); Audio.tab()
   elseif key == "3" then
-    Shop.setTab(state.shop, "upgrades"); Audio.tab()
+    Shop.setTab(state.shop, "zeptons"); Audio.tab()
   elseif key == "4" then
+    Shop.setTab(state.shop, "upgrades"); Audio.tab()
+  elseif key == "5" then
     Shop.setTab(state.shop, "network"); Audio.tab()
   elseif key == "escape" then
     -- Two-step quit: first Esc warns, second within 4 s saves + quits.

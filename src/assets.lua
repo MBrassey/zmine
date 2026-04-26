@@ -936,6 +936,81 @@ end
 -- Fill: 0..1; when fill ≥ 1.0 the canister "pumps" (caller resets fill).
 -- ============================================================
 
+-- Monolith — featureless obsidian obelisk with a single glowing red
+-- eye at the top. Tall vertical structure that looks majestic against
+-- the iso plot horizon.
+function M.drawMonolith(sx, sy, t, opts)
+  opts = opts or {}
+  local h = opts.h or 110
+  local w = opts.w or 18
+  local eye = opts.eyeColor or { 1.00, 0.18, 0.20 }
+  local body = opts.bodyColor or { 0.06, 0.04, 0.06 }
+
+  -- Long shadow beneath
+  love.graphics.setColor(0, 0, 0, 0.55)
+  love.graphics.ellipse("fill", sx, sy + 4, w * 1.5, 5)
+
+  -- Body — slightly tapered top, rectangular
+  local taper = 2
+  love.graphics.setColor(body[1], body[2], body[3], 1)
+  love.graphics.polygon("fill",
+    sx - w/2,        sy,
+    sx + w/2,        sy,
+    sx + w/2 - taper, sy - h,
+    sx - w/2 + taper, sy - h)
+  -- Subtle vertical sheen
+  love.graphics.setColor(0.12, 0.10, 0.14, 0.60)
+  love.graphics.polygon("fill",
+    sx - w/2 + 1,         sy - 2,
+    sx - w/2 + 4,         sy - 2,
+    sx - w/2 + taper + 4, sy - h + 4,
+    sx - w/2 + taper + 1, sy - h + 4)
+  -- Edge outline
+  love.graphics.setColor(0.20, 0.16, 0.22, 0.95)
+  love.graphics.setLineWidth(1)
+  love.graphics.polygon("line",
+    sx - w/2,        sy,
+    sx + w/2,        sy,
+    sx + w/2 - taper, sy - h,
+    sx - w/2 + taper, sy - h)
+
+  -- Red eye at the top — pulsing slowly
+  local eyeY = sy - h + 6
+  local pulse = 0.75 + math.sin(t * 1.3) * 0.25
+  -- Outer glow halo
+  for r = 14, 0, -1 do
+    love.graphics.setColor(eye[1], eye[2], eye[3], (1 - r/14) * 0.45 * pulse)
+    love.graphics.circle("fill", sx, eyeY, r)
+  end
+  -- Eye itself
+  love.graphics.setColor(0.10, 0.02, 0.04, 1)
+  love.graphics.circle("fill", sx, eyeY, 4)
+  love.graphics.setColor(eye[1], eye[2], eye[3], 1)
+  love.graphics.circle("fill", sx, eyeY, 3)
+  love.graphics.setColor(1, 1, 1, pulse * 0.7)
+  love.graphics.circle("fill", sx, eyeY, 1)
+
+  -- Dark vapor wisps drifting upward
+  for k = 0, 2 do
+    local ph = ((t * 0.4 + k * 0.33) % 1)
+    local vx = sx + math.sin(t * 1.1 + k) * 5
+    local vy = sy - h - ph * 30
+    local va = (1 - ph) * 0.30
+    love.graphics.setColor(0.18, 0.10, 0.18, va)
+    love.graphics.circle("fill", vx, vy, 4 - ph * 2)
+  end
+
+  -- Occasional eye-pulse shockwave (every ~3 s)
+  local cyc = (t % 3.0)
+  if cyc < 0.6 then
+    local p = cyc / 0.6
+    love.graphics.setColor(eye[1], eye[2], eye[3], (1 - p) * 0.55)
+    love.graphics.setLineWidth(2)
+    love.graphics.circle("line", sx, eyeY, 6 + p * 22)
+    love.graphics.setLineWidth(1)
+  end
+end
+
 function M.drawCanister(sx, sy, fill, color, t, opts)
   opts = opts or {}
   fill = math.max(0, math.min(1, fill or 0))
