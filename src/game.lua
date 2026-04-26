@@ -16,6 +16,7 @@ local Fx         = require "src.fx"
 local Network    = require "src.network"
 local World      = require "src.world"
 local Cosmetics  = require "src.cosmetics"
+local Console    = require "src.console"
 
 local M = {}
 
@@ -83,7 +84,7 @@ local function freshMods()
   local m = {
     click_add        = 0,
     click_pct        = 0,
-    mult_miners      = 0, -- additive percentage on top of 1.0
+    mult_miners      = 0,
     energy_eff       = 0,
     miner_kind       = {},
     energy_kind      = {},
@@ -93,8 +94,14 @@ local function freshMods()
     buffer           = 0,
     autobuy_miners   = false,
     autobuy_energy   = false,
+    autobuy_rate     = 30,    -- seconds between auto-buy ticks
     speed            = 0,
     global_z         = 0,
+    surge_extend     = 0,     -- multiplier on surge duration
+    surge_mult_bonus = 0,     -- additive bonus to surge mult
+    pool_in_bonus    = 0,     -- bonus on pool partner contribution
+    streak_cap       = 20,    -- max click streak count
+    block_reward     = 0,     -- additive multiplier on block reward
   }
   for _, def in ipairs(minersDb.list) do m.miner_kind[def.key]   = 1 end
   for _, def in ipairs(energyDb.list) do m.energy_kind[def.key]  = 1 end
@@ -123,6 +130,22 @@ local function applyUpgrades(state)
         for _, k in ipairs(e.keys) do
           m.energy_kind[k] = (m.energy_kind[k] or 1) + e.amount
         end
+      elseif e.type == "mult_miner_kind_multi" then
+        for _, k in ipairs(e.keys) do
+          m.miner_kind[k] = (m.miner_kind[k] or 1) + e.amount
+        end
+      elseif e.type == "autobuy_rate" then
+        m.autobuy_rate = math.min(m.autobuy_rate, e.amount)
+      elseif e.type == "surge_extend" then
+        m.surge_extend = math.max(m.surge_extend, e.amount)
+      elseif e.type == "surge_mult_bonus" then
+        m.surge_mult_bonus = math.max(m.surge_mult_bonus, e.amount)
+      elseif e.type == "pool_in_bonus" then
+        m.pool_in_bonus = math.max(m.pool_in_bonus, e.amount)
+      elseif e.type == "streak_cap" then
+        m.streak_cap = math.max(m.streak_cap, e.amount)
+      elseif e.type == "block_reward" then
+        m.block_reward = m.block_reward + e.amount
       elseif e.type == "network" then
         m.network = math.max(m.network, e.amount)
       elseif e.type == "crit" then
@@ -206,9 +229,11 @@ local function recompute(state, t)
   local supply = rawEnergySupply(state, t, state.day_phase or 0.4)
   local demand = rawEnergyDemand(state)
   local rawRate = rawZRate(state)
-  -- Surge multiplier from slug-wide global state
+  -- Surge multiplier from slug-wide global state, plus any local
+  -- surge_mult_bonus upgrades.
   local surgeMult = state.network and Network.surgeMultiplier(state.network) or 0
   if surgeMult > 0 then
+    surgeMult = surgeMult + (state.mods and state.mods.surge_mult_bonus or 0)
     rawRate = rawRate * (1 + surgeMult)
   end
   -- Power efficiency: if demand > supply, throttle
@@ -478,6 +503,7 @@ function M.new(opts)
   end
 
   state.world          = World.new(state)
+  state.console        = Console.newHistory()
 
   -- Pre-populate intro scene
   state.intro = Intro.new({
@@ -668,7 +694,9 @@ function M.update(state, dt, fonts)
   -- Auto-buy: prefer the highest tier whose unit cost is ≤ 50% of current
   -- balance (so it actually advances tiers instead of grinding T1).
   -- Fallback to the cheapest affordable if nothing fits the budget gate.
-  if love.timer.getTime() - state._lastAutobuy > AUTOBUY_INTERVAL then
+  -- Interval is upgrade-driven (autobuy_rate; default 30s, min 15s).
+  local autobuyInterval = (state.mods and state.mods.autobuy_rate) or AUTOBUY_INTERVAL
+  if love.timer.getTime() - state._lastAutobuy > autobuyInterval then
     state._lastAutobuy = love.timer.getTime()
     local function pickBestMiner()
       local budget = state.z * 0.50
@@ -749,11 +777,12 @@ function M.update(state, dt, fonts)
     M.message(state, "⚡ surge ended", { 0.85, 0.55, 0.30 })
   end
 
-  -- Pool sharing economy
+  -- Pool sharing economy (with pool_in_bonus upgrade)
   if state.network.pool_with then
     local outflow, payout = Network.tickPool(state.network, effDt, state.z_per_sec)
     if outflow > 0 then state.z = state.z - outflow end
     if payout > 0 then
+      payout = payout * (1 + (state.mods.pool_in_bonus or 0))
       state.z = state.z + payout
       state.z_lifetime = (state.z_lifetime or 0) + payout
       M.message(state, string.format("Pool payout +%s Z", fmt.zeptons(payout)), { 0.55, 0.85, 0.95 })
@@ -769,6 +798,12 @@ function M.update(state, dt, fonts)
 
   -- Achievements
   checkAchievements(state)
+
+  -- Live mining console history sampler (4 Hz) — drives the charts
+  -- shown in the core ops view.
+  if state.console then
+    Console.sample(state.console, state, love.timer.getTime())
+  end
 
   -- Periodic save
   if love.timer.getTime() - state._lastSave > SAVE_INTERVAL then
@@ -811,14 +846,16 @@ function M.clickCore(state, lx, ly, opts)
   -- Click streak: consecutive clicks within 1.5s scale value up to 2×
   -- on the base, AND multiply the click_pct component (so a 20-streak
   -- click at click_pct=5% adds 100% of z_per_sec — meaningful at scale).
+  -- Streak cap is upgrade-driven (default 20, max 200 with Eldritch Reflex).
   local now = love.timer.getTime()
+  local cap = (state.mods and state.mods.streak_cap) or 20
   if (now - (state._lastClickTime or 0)) < 1.5 then
-    state.click_streak = math.min(20, (state.click_streak or 0) + 1)
+    state.click_streak = math.min(cap, (state.click_streak or 0) + 1)
   else
     state.click_streak = 1
   end
   state._lastClickTime = now
-  local streakMult = 1 + math.min(20, state.click_streak) * 0.05
+  local streakMult = 1 + math.min(cap, state.click_streak) * 0.05
   local v = clickValue(state, streakMult) * streakMult
   -- Apply surge bonus to click value too
   if state.surge_mult and state.surge_mult > 0 then
@@ -1077,7 +1114,7 @@ function M.findBlock(state)
   local halvingMult = 0.5 ^ halvings
   local baseReward = 50 * halvingMult
   local rateReward = state.z_per_sec * 30 * halvingMult
-  local total = baseReward + rateReward
+  local total = (baseReward + rateReward) * (1 + (state.mods and state.mods.block_reward or 0))
   state.z = state.z + total
   state.z_lifetime = (state.z_lifetime or 0) + total
 
@@ -1085,6 +1122,8 @@ function M.findBlock(state)
   Network.notify(state.network, "block", { reward = total, height = state.block_height })
   -- Advance the slug-wide global block counter (may trigger a surge)
   Network.maybeAdvanceGlobalBlocks(state.network, state.block_height)
+  -- Notify the live console
+  if state.console then Console.notifyBlock(state.console, love.timer.getTime()) end
 
   -- Notification
   M.message(state, string.format("BLOCK #%d FOUND  +%s Z", state.block_height, fmt.zeptons(total)),
@@ -1266,6 +1305,18 @@ function M.draw(state, fonts, mx, my)
   Hud.draw(state, fonts, t)
 
   Facility.draw(state, fonts, t, Shaders, getMood(state))
+
+  -- Live mining console — real charts overlaid on the right half of
+  -- the facility area so the operator feels like they are running an
+  -- actual mining floor.
+  if state.console then
+    local area = Facility.area()
+    local cw = 380
+    local cx = area.x + area.w - cw - 18
+    local cy = area.y + 90
+    local ch = area.h - 180
+    Console.draw(state.console, state, fonts, t, cx, cy, cw, ch)
+  end
 
   -- Particles overlay clipped to facility area (canvas-relative, design coords)
   local area = Facility.area()

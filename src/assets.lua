@@ -282,6 +282,175 @@ local function drawEonchamber(sx, sy, color, t)
   end
 end
 
+local function drawCosmosLattice(sx, sy, color, t)
+  -- 11D brane lattice: nested polyhedra with rotating axes + bright glints
+  -- Base hex platform
+  love.graphics.setColor(0.10, 0.14, 0.20, 1)
+  local pts = {}
+  for k = 0, 5 do
+    local a = (k / 6) * math.pi * 2
+    pts[#pts + 1] = sx + math.cos(a) * 22
+    pts[#pts + 1] = sy + math.sin(a) * 7
+  end
+  love.graphics.polygon("fill", pts)
+  love.graphics.setColor(color[1], color[2], color[3], 0.85)
+  love.graphics.polygon("line", pts)
+
+  -- Outer glow
+  for r = 30, 0, -1 do
+    love.graphics.setColor(color[1], color[2], color[3], (1 - r/30) * 0.06)
+    love.graphics.circle("fill", sx, sy - 30, r)
+  end
+
+  -- Three nested rotating polyhedra (squares projected, rotating on different axes)
+  for k = 1, 3 do
+    local r = 8 + k * 6
+    local rot = t * (0.3 + k * 0.4) * (k % 2 == 0 and 1 or -1)
+    love.graphics.setColor(color[1], color[2], color[3], 0.85 - k * 0.15)
+    love.graphics.setLineWidth(1.5)
+    local poly = {}
+    for j = 0, 5 do
+      local a = rot + j * math.pi / 3
+      poly[#poly + 1] = sx + math.cos(a) * r
+      poly[#poly + 1] = sy - 30 + math.sin(a) * r * 0.5
+    end
+    love.graphics.polygon("line", poly)
+  end
+  love.graphics.setLineWidth(1)
+
+  -- Central bright pulse + brane streaks
+  local pulse = 0.85 + math.sin(t * 3) * 0.15
+  love.graphics.setColor(1, 1, 1, pulse)
+  love.graphics.circle("fill", sx, sy - 30, 3.5)
+  for k = 0, 5 do
+    local a = t * 1.2 + k * (math.pi * 2 / 6)
+    local rx = math.cos(a) * 30
+    local ry = math.sin(a) * 30
+    love.graphics.setColor(color[1], color[2], color[3], 0.50)
+    love.graphics.line(sx, sy - 30, sx + rx, sy - 30 + ry)
+  end
+  -- Outer brane sparks
+  for k = 0, 8 do
+    local a = (t * 0.7 + k / 9) * math.pi * 2
+    local rr = 30 + math.sin(t * 2 + k) * 4
+    love.graphics.setColor(1, 1, 1, 0.85)
+    love.graphics.circle("fill", sx + math.cos(a) * rr, sy - 30 + math.sin(a) * rr, 1.4)
+  end
+end
+
+local function drawEldritchPrime(sx, sy, color, t)
+  -- Non-Euclidean spirals + tindalos hound coil + acausal eyes
+  -- Dark base
+  love.graphics.setColor(0.16, 0.06, 0.22, 1)
+  love.graphics.ellipse("fill", sx, sy, 28, 9)
+  love.graphics.setColor(color[1], color[2], color[3], 0.70)
+  love.graphics.ellipse("line", sx, sy, 28, 9)
+
+  -- Pulsating outer aura
+  for r = 36, 0, -1 do
+    love.graphics.setColor(color[1] * 0.85, color[2] * 0.45, color[3] * 0.95, (1 - r/36) * 0.10)
+    love.graphics.circle("fill", sx, sy - 32, r)
+  end
+
+  -- Spiral arms (drawn as polylines, varying with time)
+  for arm = 0, 4 do
+    love.graphics.setColor(color[1], color[2], color[3], 0.85)
+    love.graphics.setLineWidth(1.5)
+    local pts2 = {}
+    local armBase = arm * (math.pi * 2 / 5)
+    for s = 0, 18 do
+      local f = s / 18
+      local r = 4 + f * 24
+      local a = armBase + t * 0.6 + f * 3.2 * (arm % 2 == 0 and 1 or -1)
+      pts2[#pts2 + 1] = sx + math.cos(a) * r
+      pts2[#pts2 + 1] = sy - 32 + math.sin(a) * r * 0.55
+    end
+    love.graphics.line(pts2)
+  end
+  love.graphics.setLineWidth(1)
+
+  -- Acausal eyes (2-3 randomly orbiting)
+  for k = 0, 2 do
+    local a = t * (0.4 + k * 0.13) + k * 2.1
+    local rx = math.cos(a) * (12 + k * 3)
+    local ry = math.sin(a * 0.7) * (6 + k * 2)
+    love.graphics.setColor(0.05, 0.02, 0.08, 1)
+    love.graphics.circle("fill", sx + rx, sy - 32 + ry, 4)
+    love.graphics.setColor(color[1], color[2], color[3], 0.95)
+    love.graphics.circle("line", sx + rx, sy - 32 + ry, 4)
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.circle("fill", sx + rx + math.sin(t * 5) * 1, sy - 32 + ry, 1.5)
+  end
+
+  -- Central reality-rip
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.circle("fill", sx, sy - 32, 2)
+  love.graphics.setColor(0, 0, 0, 1)
+  love.graphics.circle("fill", sx + math.sin(t * 7) * 0.4, sy - 32 + math.cos(t * 9) * 0.4, 1)
+end
+
+local function drawOmegaEngine(sx, sy, color, t)
+  -- Tipler-cylinder core: counter-rotating cylinders with bright accretion;
+  -- everything trails inward.
+  -- Base
+  love.graphics.setColor(0.18, 0.18, 0.22, 1)
+  love.graphics.ellipse("fill", sx, sy, 32, 10)
+  love.graphics.setColor(0.55, 0.55, 0.58, 1)
+  love.graphics.ellipse("line", sx, sy, 32, 10)
+
+  -- Outer corona
+  for r = 50, 0, -1 do
+    love.graphics.setColor(1, 1, 1, (1 - r/50) * 0.08)
+    love.graphics.circle("fill", sx, sy - 38, r)
+  end
+
+  -- Two cylinders (stylized as ellipses) rotating opposite
+  for cyl = -1, 1, 2 do
+    local rot = t * 1.2 * cyl
+    love.graphics.push()
+    love.graphics.translate(sx, sy - 38)
+    love.graphics.rotate(rot)
+    love.graphics.setColor(0.85, 0.85, 0.95, 1)
+    love.graphics.rectangle("fill", -16, -3, 32, 6, 2, 2)
+    love.graphics.setColor(color[1], color[2], color[3], 1)
+    love.graphics.rectangle("line", -16, -3, 32, 6, 2, 2)
+    -- Bright tips
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.circle("fill", -16, 0, 2)
+    love.graphics.circle("fill", 16, 0, 2)
+    love.graphics.pop()
+  end
+
+  -- Accretion disk in the middle
+  for k = 0, 36 do
+    local a = (k / 36) * math.pi * 2 + t * 0.8
+    local rr = 22 + math.sin(t * 3 + k) * 1.5
+    love.graphics.setColor(1, 1, 1, 0.85 - (k % 5) * 0.10)
+    love.graphics.circle("fill",
+      sx + math.cos(a) * rr,
+      sy - 38 + math.sin(a) * rr * 0.5, 0.8)
+  end
+
+  -- Central white singularity point
+  for r = 6, 0, -1 do
+    love.graphics.setColor(1, 1, 1, (1 - r/7) * 1)
+    love.graphics.circle("fill", sx, sy - 38, r)
+  end
+
+  -- Outward radiating beams
+  for k = 0, 7 do
+    local a = (k / 8) * math.pi * 2 + t * 0.3
+    local x1 = sx + math.cos(a) * 28
+    local y1 = sy - 38 + math.sin(a) * 14
+    local x2 = sx + math.cos(a) * 44
+    local y2 = sy - 38 + math.sin(a) * 22
+    love.graphics.setColor(1, 1, 1, 0.65)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.line(x1, y1, x2, y2)
+  end
+  love.graphics.setLineWidth(1)
+end
+
 M.miners = {
   asic_z1            = drawAsicZ1,
   gpu_cluster        = drawGpu,
@@ -290,6 +459,9 @@ M.miners = {
   hyperdrive_rig     = drawHyperdrive,
   singularity_engine = drawSingularity,
   eonchamber         = drawEonchamber,
+  cosmos_lattice     = drawCosmosLattice,
+  eldritch_prime     = drawEldritchPrime,
+  omega_engine       = drawOmegaEngine,
 }
 
 -- ============================================================
@@ -568,15 +740,163 @@ local function drawZeropoint(sx, sy, color, t)
   end
 end
 
+local function drawHiggsManifold(sx, sy, color, t)
+  -- Resonance lattice: vibrating mesh with bright bosons darting through
+  love.graphics.setColor(0.22, 0.10, 0.28, 1)
+  love.graphics.rectangle("fill", sx - 22, sy - 4, 44, 4, 1, 1)
+  love.graphics.setColor(color[1], color[2], color[3], 0.85)
+  love.graphics.rectangle("line", sx - 22, sy - 4, 44, 4, 1, 1)
+  -- Resonance grid
+  for j = 0, 4 do
+    for i = 0, 5 do
+      local x = sx - 18 + i * 7
+      local y = sy - 8 - j * 7 - math.sin(t * 4 + i + j) * 1.5
+      love.graphics.setColor(color[1], color[2], color[3], 0.40 + math.sin(t * 6 + i * j) * 0.30)
+      love.graphics.circle("fill", x, y, 1.2)
+    end
+  end
+  -- Bright bosons
+  for k = 0, 3 do
+    local ph = ((t * 1.2 + k * 0.25) % 1)
+    local bx = sx - 22 + ph * 44
+    local by = sy - 22 + math.sin(t * 5 + k) * 4
+    love.graphics.setColor(1, 1, 1, 0.95)
+    love.graphics.circle("fill", bx, by, 2)
+    love.graphics.setColor(color[1], color[2], color[3], 0.65)
+    love.graphics.circle("fill", bx, by, 4)
+  end
+  -- Containment top cap
+  love.graphics.setColor(0.45, 0.30, 0.55, 1)
+  love.graphics.rectangle("fill", sx - 14, sy - 44, 28, 4, 1, 1)
+  love.graphics.setColor(color[1], color[2], color[3], 0.95)
+  love.graphics.rectangle("fill", sx - 12, sy - 45, 24, 1)
+end
+
+local function drawEternalSun(sx, sy, color, t)
+  -- Captive star: bright sphere with corona + occasional flares
+  -- Base shell
+  love.graphics.setColor(0.25, 0.22, 0.30, 1)
+  love.graphics.ellipse("fill", sx, sy, 26, 8)
+  love.graphics.setColor(color[1] * 0.6, color[2] * 0.6, color[3] * 0.6, 0.85)
+  love.graphics.ellipse("line", sx, sy, 26, 8)
+
+  -- Corona haze
+  for r = 32, 0, -1 do
+    love.graphics.setColor(color[1], color[2], color[3], (1 - r/32) * 0.16)
+    love.graphics.circle("fill", sx, sy - 26, r)
+  end
+
+  -- Star body
+  for r = 16, 0, -1 do
+    local k = r / 16
+    love.graphics.setColor(1 - k * 0.10, 0.85 - k * 0.10, 0.30 + k * 0.20, 1)
+    love.graphics.circle("fill", sx, sy - 26, r)
+  end
+  love.graphics.setColor(1, 1, 1, 0.95)
+  love.graphics.circle("fill", sx, sy - 26, 4)
+
+  -- Flares
+  for k = 0, 5 do
+    local a = (k / 6) * math.pi * 2 + t * 0.4
+    local len = 18 + math.sin(t * 2 + k) * 5
+    local x1 = sx + math.cos(a) * 16
+    local y1 = sy - 26 + math.sin(a) * 16
+    local x2 = sx + math.cos(a) * (16 + len)
+    local y2 = sy - 26 + math.sin(a) * (16 + len)
+    love.graphics.setColor(1, 0.85, 0.30, 0.85)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(x1, y1, x2, y2)
+  end
+  love.graphics.setLineWidth(1)
+
+  -- Containment torus
+  love.graphics.setColor(0.40, 0.35, 0.45, 1)
+  love.graphics.ellipse("line", sx, sy - 26, 22, 6)
+  love.graphics.ellipse("line", sx, sy - 26, 24, 7)
+end
+
+local function drawMultiverseTap(sx, sy, color, t)
+  -- Everett-routing manifold: rainbow-shimmer cluster of branching crystals
+  -- Hex base
+  love.graphics.setColor(0.10, 0.18, 0.22, 1)
+  local pts3 = {}
+  for k = 0, 5 do
+    local a = (k / 6) * math.pi * 2
+    pts3[#pts3 + 1] = sx + math.cos(a) * 26
+    pts3[#pts3 + 1] = sy + math.sin(a) * 8
+  end
+  love.graphics.polygon("fill", pts3)
+  love.graphics.setColor(color[1], color[2], color[3], 0.85)
+  love.graphics.polygon("line", pts3)
+
+  -- Floating branch crystals (color rotates)
+  for k = 0, 6 do
+    local a = t * 0.3 + k * (math.pi * 2 / 7)
+    local rr = 22
+    local cx2 = sx + math.cos(a) * rr
+    local cy2 = sy - 30 + math.sin(a) * rr * 0.45 + math.sin(t * 2 + k) * 2
+    local hue = ((t * 0.05 + k * 0.143) % 1)
+    local r = 0.5 + 0.5 * math.sin(hue * math.pi * 2)
+    local g = 0.5 + 0.5 * math.sin(hue * math.pi * 2 + math.pi * 2 / 3)
+    local b = 0.5 + 0.5 * math.sin(hue * math.pi * 2 + math.pi * 4 / 3)
+    -- Tall thin diamond
+    love.graphics.setColor(r, g, b, 0.75)
+    love.graphics.polygon("fill",
+      cx2, cy2 - 8,
+      cx2 + 4, cy2,
+      cx2, cy2 + 8,
+      cx2 - 4, cy2)
+    love.graphics.setColor(1, 1, 1, 0.85)
+    love.graphics.polygon("line",
+      cx2, cy2 - 8,
+      cx2 + 4, cy2,
+      cx2, cy2 + 8,
+      cx2 - 4, cy2)
+    -- Connection to center
+    love.graphics.setColor(r, g, b, 0.30)
+    love.graphics.line(sx, sy - 30, cx2, cy2)
+  end
+
+  -- Central white bright
+  for r = 7, 0, -1 do
+    love.graphics.setColor(1, 1, 1, (1 - r/7) * 0.85)
+    love.graphics.circle("fill", sx, sy - 30, r)
+  end
+
+  -- Branching tendrils outward (rainbow)
+  for k = 0, 3 do
+    local hue = ((t * 0.1 + k * 0.25) % 1)
+    local r = 0.5 + 0.5 * math.sin(hue * math.pi * 2)
+    local g = 0.5 + 0.5 * math.sin(hue * math.pi * 2 + math.pi * 2 / 3)
+    local b = 0.5 + 0.5 * math.sin(hue * math.pi * 2 + math.pi * 4 / 3)
+    local a = t * 0.6 + k * (math.pi / 2)
+    local pts4 = {}
+    for s = 0, 12 do
+      local f = s / 12
+      local rr = 4 + f * 38
+      local aa = a + f * 1.4
+      pts4[#pts4 + 1] = sx + math.cos(aa) * rr
+      pts4[#pts4 + 1] = sy - 30 + math.sin(aa) * rr * 0.55
+    end
+    love.graphics.setColor(r, g, b, 0.50)
+    love.graphics.setLineWidth(1.5)
+    love.graphics.line(pts4)
+  end
+  love.graphics.setLineWidth(1)
+end
+
 M.energy = {
-  solar      = drawSolar,
-  wind       = drawWind,
-  hydro      = drawHydro,
-  geothermal = drawGeothermal,
-  fission    = drawFission,
-  fusion     = drawFusion,
-  antimatter = drawAntimatter,
-  zeropoint  = drawZeropoint,
+  solar           = drawSolar,
+  wind            = drawWind,
+  hydro           = drawHydro,
+  geothermal      = drawGeothermal,
+  fission         = drawFission,
+  fusion          = drawFusion,
+  antimatter      = drawAntimatter,
+  zeropoint       = drawZeropoint,
+  higgs_manifold  = drawHiggsManifold,
+  eternal_sun     = drawEternalSun,
+  multiverse_tap  = drawMultiverseTap,
 }
 
 -- ============================================================

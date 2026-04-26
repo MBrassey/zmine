@@ -94,6 +94,190 @@ M.list = {
   { key = "global_2", name = "Z-Multiplier II",     desc = "All zepton production +50% total.",
     cost = 8000000000,  effect = { type = "global_z", amount = 0.50 },
     requires = { "global_1" } },
+
+  -- ============================================================
+  -- Late-game expansion: per-tier ladders for the new endgame rigs.
+  -- ============================================================
+
+  -- Mining multiplier ladder
+  { key = "mult_5", name = "Hash Acceleration V",   desc = "+200% miner output total.",
+    cost = 1.5e11,      effect = { type = "mult_miners", amount = 2.0 },
+    requires = { "mult_4" } },
+  { key = "mult_6", name = "Hash Acceleration VI",  desc = "+300% miner output total.",
+    cost = 4.5e12,      effect = { type = "mult_miners", amount = 3.0 },
+    requires = { "mult_5" } },
+  { key = "mult_7", name = "Hash Acceleration VII", desc = "+500% miner output total.",
+    cost = 9.0e13,      effect = { type = "mult_miners", amount = 5.0 },
+    requires = { "mult_6" } },
+  { key = "mult_8", name = "Hash Acceleration VIII", desc = "+800% miner output total.",
+    cost = 1.5e15,      effect = { type = "mult_miners", amount = 8.0 },
+    requires = { "mult_7" } },
+
+  -- Power efficiency ladder
+  { key = "eff_4", name = "Power Conditioning IV",  desc = "Miners use 50% less energy total.",
+    cost = 8.0e9,       effect = { type = "energy_eff", amount = 0.50 },
+    requires = { "eff_3" } },
+  { key = "eff_5", name = "Power Conditioning V",   desc = "Miners use 65% less energy total.",
+    cost = 1.5e12,      effect = { type = "energy_eff", amount = 0.65 },
+    requires = { "eff_4" } },
+  { key = "eff_6", name = "Cryogenic Bus",          desc = "Miners use 80% less energy total.",
+    cost = 4.0e14,      effect = { type = "energy_eff", amount = 0.80 },
+    requires = { "eff_5" } },
+
+  -- Click upgrades
+  { key = "click_5", name = "Resonant Cascade",     desc = "Click yields 5% of Z/s (streak-amplified).",
+    cost = 1.2e10,      effect = { type = "click_pct", amount = 0.05 },
+    requires = { "click_4" } },
+  { key = "click_6", name = "Operator Sigil",       desc = "Click yields 12% of Z/s (streak-amplified).",
+    cost = 9.0e12,      effect = { type = "click_pct", amount = 0.12 },
+    requires = { "click_5" } },
+
+  -- Per-tier mining kind ladder for endgame rigs
+  { key = "boost_eonchamber",   name = "Many-Worlds Tuning", desc = "Eonchamber rigs produce 2×.",
+    cost = 1.2e9,       effect = { type = "mult_miner_kind", key = "eonchamber", amount = 1.0 } },
+  { key = "boost_cosmos",       name = "Brane Phasing",      desc = "Cosmos Lattice produces 2×.",
+    cost = 1.2e10,      effect = { type = "mult_miner_kind", key = "cosmos_lattice", amount = 1.0 } },
+  { key = "boost_eldritch",     name = "Acausal Pact",       desc = "Eldritch Prime produces 2×.",
+    cost = 1.5e11,      effect = { type = "mult_miner_kind", key = "eldritch_prime", amount = 1.0 } },
+  { key = "boost_omega",        name = "Anthropic Lock",     desc = "Omega Engine produces 2×.",
+    cost = 2.0e12,      effect = { type = "mult_miner_kind", key = "omega_engine", amount = 1.0 } },
+  -- Tier-2 miner-kind boosts (super-charged)
+  { key = "boost2_quantum",     name = "Decoherence Lock",   desc = "Quantum Miners produce 4× total.",
+    cost = 5.0e8,       effect = { type = "mult_miner_kind", key = "quantum_miner", amount = 2.0 },
+    requires = { "boost_quantum" } },
+  { key = "boost2_neural",      name = "Latent Recall",      desc = "Neural Forges produce 4× total.",
+    cost = 5.0e9,       effect = { type = "mult_miner_kind", key = "neural_forge", amount = 2.0 },
+    requires = { "boost_neural" } },
+  { key = "boost2_hyper",       name = "Subliminal Cascade", desc = "Hyperdrives produce 4× total.",
+    cost = 5.0e10,      effect = { type = "mult_miner_kind", key = "hyperdrive_rig", amount = 2.0 },
+    requires = { "boost_hyper" } },
+  { key = "boost2_singularity", name = "Horizon Charge",     desc = "Singularity Engines produce 4× total.",
+    cost = 5.0e11,      effect = { type = "mult_miner_kind", key = "singularity_engine", amount = 2.0 },
+    requires = { "boost_singularity" } },
+
+  -- Per-tier energy kind ladder
+  { key = "energy_geothermal",  name = "Magma Tap",          desc = "Geothermal output 2×.",
+    cost = 8.5e6,       effect = { type = "mult_energy_kind", key = "geothermal", amount = 1.0 } },
+  { key = "energy_antimatter",  name = "Containment Tuning", desc = "Antimatter output 2×.",
+    cost = 1.2e10,      effect = { type = "mult_energy_kind", key = "antimatter", amount = 1.0 } },
+  { key = "energy_zeropoint",   name = "Casimir Resonance",  desc = "Zero-Point output 2×.",
+    cost = 5.0e11,      effect = { type = "mult_energy_kind", key = "zeropoint", amount = 1.0 } },
+  { key = "energy_higgs",       name = "Boson Routing",      desc = "Higgs Manifold output 2×.",
+    cost = 9.0e12,      effect = { type = "mult_energy_kind", key = "higgs_manifold", amount = 1.0 } },
+  { key = "energy_eternal",     name = "Stellar Bind",       desc = "Eternal Sun output 2×.",
+    cost = 1.4e14,      effect = { type = "mult_energy_kind", key = "eternal_sun", amount = 1.0 } },
+  { key = "energy_multiverse",  name = "Branch Skim",        desc = "Multiverse Tap output 2×.",
+    cost = 2.0e15,      effect = { type = "mult_energy_kind", key = "multiverse_tap", amount = 1.0 } },
+
+  -- Network synergy ladder
+  { key = "network3", name = "Hyper-Mesh",        desc = "Each miner adds +0.5% to all miner output total.",
+    cost = 5.0e9,       effect = { type = "network", amount = 0.005 },
+    requires = { "network2" } },
+  { key = "network4", name = "Singular Mesh",     desc = "Each miner adds +1% to all miner output total.",
+    cost = 6.0e11,      effect = { type = "network", amount = 0.010 },
+    requires = { "network3" } },
+
+  -- Crit ladder
+  { key = "crit_4", name = "Eldritch Luck",     desc = "Crit chance 15%, multiplier 5,000×.",
+    cost = 8.0e9,       effect = { type = "crit", chance = 0.15, mult = 5000 },
+    requires = { "crit_3" } },
+  { key = "crit_5", name = "Anthropic Crit",    desc = "Crit chance 25%, multiplier 25,000×.",
+    cost = 5.0e11,      effect = { type = "crit", chance = 0.25, mult = 25000 },
+    requires = { "crit_4" } },
+
+  -- Auto-buy reach
+  { key = "autobuy_3", name = "Recursive Procurement", desc = "Auto-buy fires every 15s instead of 30s.",
+    cost = 5.0e8,       effect = { type = "autobuy_rate", amount = 15 },
+    requires = { "autobuy_2" } },
+
+  -- Speed
+  { key = "compress2", name = "Time Compression II",   desc = "Game runs 2× faster total.",
+    cost = 5.0e10,      effect = { type = "speed", amount = 1.0 },
+    requires = { "compress" } },
+  { key = "compress3", name = "Eternal Now",           desc = "Game runs 3× faster total.",
+    cost = 5.0e12,      effect = { type = "speed", amount = 2.0 },
+    requires = { "compress2" } },
+
+  -- Global Z multipliers continued
+  { key = "global_3", name = "Z-Multiplier III",       desc = "All zepton production +100%.",
+    cost = 5.0e10,      effect = { type = "global_z", amount = 1.00 },
+    requires = { "global_2" } },
+  { key = "global_4", name = "Z-Multiplier IV",        desc = "All zepton production +200%.",
+    cost = 8.0e12,      effect = { type = "global_z", amount = 2.00 },
+    requires = { "global_3" } },
+  { key = "global_5", name = "Z-Multiplier V",         desc = "All zepton production +400%.",
+    cost = 4.0e14,      effect = { type = "global_z", amount = 4.00 },
+    requires = { "global_4" } },
+
+  -- Surge enhancements
+  { key = "surge_1", name = "Surge Conductor",         desc = "Global surge windows are 50% longer locally.",
+    cost = 4.0e9,       effect = { type = "surge_extend", amount = 0.5 } },
+  { key = "surge_2", name = "Resonance Tuning",        desc = "Surge multiplier +25% locally.",
+    cost = 2.5e11,      effect = { type = "surge_mult_bonus", amount = 0.25 },
+    requires = { "surge_1" } },
+
+  -- Pool ratio booster
+  { key = "pool_1", name = "Liquidity Bridge",         desc = "Pool partner contribution +25% on your side.",
+    cost = 8.0e8,       effect = { type = "pool_in_bonus", amount = 0.25 } },
+  { key = "pool_2", name = "Mesh Liaison",             desc = "Pool partner contribution +50% on your side.",
+    cost = 5.0e10,      effect = { type = "pool_in_bonus", amount = 0.50 },
+    requires = { "pool_1" } },
+
+  -- Heat / cooling / safety etc
+  { key = "cooling_1", name = "Phase-Change Cooling",  desc = "All miners produce +20% (heat-recovery).",
+    cost = 6.0e8,       effect = { type = "mult_miners", amount = 0.20 } },
+  { key = "cooling_2", name = "Sub-Zero Bus",          desc = "All miners produce +40% (subzero loop).",
+    cost = 5.0e10,      effect = { type = "mult_miners", amount = 0.40 },
+    requires = { "cooling_1" } },
+
+  -- Specialized boosters
+  { key = "ai_prefetch", name = "AI Prefetch Cache",   desc = "GPU + Quantum + Neural produce +100%.",
+    cost = 1.2e10,      effect = { type = "mult_miner_kind_multi",
+      keys = { "gpu_cluster", "quantum_miner", "neural_forge" }, amount = 1.0 } },
+  { key = "exotic_lock", name = "Exotic Lock-In",      desc = "Singularity + Eonchamber + Cosmos + Eldritch + Omega produce +200%.",
+    cost = 8.0e12,      effect = { type = "mult_miner_kind_multi",
+      keys = { "singularity_engine", "eonchamber", "cosmos_lattice", "eldritch_prime", "omega_engine" },
+      amount = 2.0 } },
+  { key = "renewables", name = "Renewables Grid",      desc = "Solar + Wind + Hydro produce +200%.",
+    cost = 4.0e7,       effect = { type = "mult_energy_kind_multi",
+      keys = { "solar", "wind", "hydro" }, amount = 2.0 } },
+  { key = "fission_breeder", name = "Breeder Reactor", desc = "Fission produces +200%.",
+    cost = 2.5e9,       effect = { type = "mult_energy_kind", key = "fission", amount = 2.0 },
+    requires = { "energy_reactor" } },
+  { key = "fusion_optimum", name = "Q-Limit Burn",     desc = "Fusion produces +200%.",
+    cost = 5.0e10,      effect = { type = "mult_energy_kind", key = "fusion", amount = 2.0 },
+    requires = { "energy_reactor" } },
+  { key = "exotic_grid", name = "Exotic Energy Grid",  desc = "ZPT + Higgs + Eternal + Multiverse produce +300%.",
+    cost = 9.0e14,      effect = { type = "mult_energy_kind_multi",
+      keys = { "zeropoint", "higgs_manifold", "eternal_sun", "multiverse_tap" },
+      amount = 3.0 } },
+
+  -- Click-tier helpers
+  { key = "click_streak", name = "Quantum Reflex",     desc = "Click streak cap raised from 20 to 50.",
+    cost = 8.0e7,       effect = { type = "streak_cap", amount = 50 } },
+  { key = "click_streak2", name = "Eldritch Reflex",   desc = "Click streak cap raised from 50 to 200.",
+    cost = 5.0e12,      effect = { type = "streak_cap", amount = 200 },
+    requires = { "click_streak" } },
+
+  -- Block reward enhancements
+  { key = "block_yield_1", name = "Wider Mempool",     desc = "Block reward +50%.",
+    cost = 5.0e9,       effect = { type = "block_reward", amount = 0.50 } },
+  { key = "block_yield_2", name = "MEV Capture",       desc = "Block reward +200% total.",
+    cost = 1.5e12,      effect = { type = "block_reward", amount = 2.00 },
+    requires = { "block_yield_1" } },
+
+  -- Buffer / capacity
+  { key = "buffer_2", name = "Capacitor Banks",        desc = "+150% energy headroom total.",
+    cost = 1.0e8,       effect = { type = "buffer", amount = 1.5 },
+    requires = { "buffer" } },
+
+  -- Endgame capstones (require many other upgrades)
+  { key = "ascendant",  name = "Ascendant Operator",   desc = "All zepton production +1000%.",
+    cost = 5.0e16,      effect = { type = "global_z", amount = 10.0 },
+    requires = { "global_5" } },
+  { key = "transcend",  name = "Transcendent Loop",    desc = "All zepton production +5000% total.",
+    cost = 5.0e18,      effect = { type = "global_z", amount = 50.0 },
+    requires = { "ascendant" } },
 }
 
 M.byKey = {}
