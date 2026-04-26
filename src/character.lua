@@ -224,7 +224,7 @@ local function drawFootDust(c, sx, sy, t)
 end
 
 function M.draw(c, t)
-  local sx, sy = Iso.toScreen(c.wx, c.wy, 0)
+  local sx, sy = Iso.toScreen(c.wx, c.wy, c.wz or 0)
   local moving = (c.vx * c.vx + c.vy * c.vy) > 0.05
   local wp = c.walkPhase or 0
   -- Walking pose

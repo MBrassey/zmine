@@ -53,6 +53,27 @@ function M.drawTile(wx, wy, fillR, fillG, fillB, fillA, lineColor)
   end
 end
 
+-- Same as drawTile but at an arbitrary world-z (lifts the diamond up).
+function M.drawTileAt(wx, wy, wz, fillR, fillG, fillB, fillA, lineColor)
+  local sx, sy = M.toScreen(wx, wy, wz or 0)
+  local hw = M.TILE_W * 0.5
+  local hh = M.TILE_H * 0.5
+  local pts = {
+    sx,      sy,
+    sx + hw, sy + hh,
+    sx,      sy + M.TILE_H,
+    sx - hw, sy + hh,
+  }
+  if fillA and fillA > 0 then
+    love.graphics.setColor(fillR, fillG, fillB, fillA)
+    love.graphics.polygon("fill", pts)
+  end
+  if lineColor then
+    love.graphics.setColor(lineColor[1], lineColor[2], lineColor[3], lineColor[4] or 0.6)
+    love.graphics.polygon("line", pts)
+  end
+end
+
 -- Draw an axis-aligned iso-prism (box) with top/right/left faces.
 -- Pivot is at the bottom-center of the prism; w, d are footprint in tiles, h in z-units.
 function M.drawBox(wx, wy, w, d, h, faces)

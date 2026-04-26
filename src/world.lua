@@ -28,6 +28,96 @@ local PAD_COOLDOWN = 0.65
 local PAD_HOLD_X10  = 1.5
 local PAD_HOLD_MAX  = 3.0
 
+-- ============================================================
+-- PLATFORMS — the world is composed of multiple platforms at
+-- different elevations. The MAIN platform is always available; the
+-- expansions unlock as the player hits progression milestones, each
+-- with a distinct floor palette and a slight z-elevation so the side
+-- walls form natural cliff faces.
+-- ============================================================
+local PLATFORMS = {
+  {
+    id     = "main",
+    minX = 0, maxX = PLOT_W, minY = 0, maxY = PLOT_H,
+    elev   = 0,
+    a      = { 0.06, 0.10, 0.07 },
+    b      = { 0.04, 0.08, 0.06 },
+    edge   = { 0.30, 0.85, 0.55, 0.30 },
+    name   = "MAIN FACILITY",
+    unlock = function() return true end,
+  },
+  {
+    id     = "monolith_yard",
+    minX = -8, maxX = -1, minY = 4, maxY = 14,
+    elev   = 1,
+    a      = { 0.10, 0.04, 0.08 },
+    b      = { 0.07, 0.03, 0.06 },
+    edge   = { 1.00, 0.18, 0.20, 0.45 },
+    name   = "MONOLITH YARD",
+    unlock_text = "Raise a Monolith",
+    unlock = function(state) return (state.monoliths or 0) >= 1 end,
+  },
+  {
+    id     = "fission_court",
+    minX = PLOT_W + 1, maxX = PLOT_W + 8, minY = 4, maxY = 14,
+    elev   = 1,
+    a      = { 0.06, 0.12, 0.04 },
+    b      = { 0.04, 0.10, 0.03 },
+    edge   = { 0.45, 1.00, 0.55, 0.45 },
+    name   = "FISSION COURT",
+    unlock_text = "Build a Gen-IV Fission Reactor",
+    unlock = function(state) return (state.energy.fission or 0) >= 1 end,
+  },
+  {
+    id     = "sky_deck",
+    minX = 8, maxX = 16, minY = -8, maxY = -1,
+    elev   = 2,
+    a      = { 0.10, 0.06, 0.18 },
+    b      = { 0.07, 0.04, 0.14 },
+    edge   = { 0.85, 0.55, 1.00, 0.50 },
+    name   = "SKY DECK",
+    unlock_text = "Invoke a Miracle",
+    unlock = function(state) return (state.miracles_invoked or 0) >= 1 end,
+  },
+  {
+    id     = "endgame_spire",
+    minX = 8, maxX = 16, minY = PLOT_H + 1, maxY = PLOT_H + 8,
+    elev   = 3,
+    a      = { 0.18, 0.14, 0.04 },
+    b      = { 0.14, 0.10, 0.02 },
+    edge   = { 1.00, 0.85, 0.30, 0.55 },
+    name   = "ENDGAME SPIRE",
+    unlock_text = "Build a Singularity Engine",
+    unlock = function(state) return (state.miners.singularity_engine or 0) >= 1 end,
+  },
+}
+
+local function platformAt(wx, wy)
+  for _, p in ipairs(PLATFORMS) do
+    if wx >= p.minX and wx < p.maxX and wy >= p.minY and wy < p.maxY then
+      return p
+    end
+  end
+  return nil
+end
+
+local function isUnlocked(p, state) return p.unlock(state) end
+
+local function computeBounds(state)
+  -- Union AABB of all unlocked platforms; the character is otherwise
+  -- free-form within that envelope.
+  local minX, minY, maxX, maxY = 0.5, 0.5, PLOT_W - 0.5, PLOT_H - 0.5
+  for _, p in ipairs(PLATFORMS) do
+    if p.id ~= "main" and isUnlocked(p, state) then
+      minX = math.min(minX, p.minX + 0.5)
+      maxX = math.max(maxX, p.maxX - 0.5)
+      minY = math.min(minY, p.minY + 0.5)
+      maxY = math.max(maxY, p.maxY - 0.5)
+    end
+  end
+  return { minX = minX, minY = minY, maxX = maxX, maxY = maxY }
+end
+
 -- Camera origin (where world-coord (0,0) lands in screen space).
 -- The plot's iso footprint is (PLOT_W+PLOT_H)*TILE_W/2 = 2016 px wide,
 -- which exceeds the 1920 design canvas — a fixed camera always leaves
@@ -417,15 +507,24 @@ local function tickCanisters(world, state, dt)
 end
 
 function M.update(world, state, dt, callbacks)
+  -- Plot bounds expand as platforms unlock; recompute each frame.
+  world.plotBounds = computeBounds(state)
   -- Movement input
   local ax, ay = pollInput()
   Char.update(world.char, dt, ax, ay, world.plotBounds)
+  -- Track which platform the character is standing on; their wz follows
+  -- the platform elevation so they actually appear ON top of the
+  -- platform's surface, not floating below it.
+  local plat = platformAt(world.char.wx, world.char.wy)
+  local targetWz = (plat and plat.elev) or 0
+  -- Smooth elevation transition (e.g. stepping onto a higher platform)
+  world.char.wz = world.char.wz or 0
+  world.char.wz = world.char.wz + (targetWz - world.char.wz) * math.min(1, dt * 8)
 
   -- Camera follow: lerp toward the screen position that puts the
-  -- character at canvas center. The plot's iso footprint is wider
-  -- than the 1920 canvas, so a fixed camera always clips one corner
-  -- offscreen. Following the player keeps you centered on your plot.
-  local charSx, charSy = Iso.toScreen(world.char.wx, world.char.wy, 0)
+  -- character at canvas center. Includes character wz so the camera
+  -- rises smoothly when stepping onto an elevated platform.
+  local charSx, charSy = Iso.toScreen(world.char.wx, world.char.wy, world.char.wz or 0)
   local targetSx = DESIGN_W / 2 - charSx
   local targetSy = CAMERA_VIEW_Y - charSy
   local lerp = math.min(1, dt * CAMERA_LERP)
@@ -506,25 +605,79 @@ end
 -- Drawing
 -- ============================================================
 
-local function drawFloor(t)
-  -- Tiled iso floor with subtle pulse on grid lines
-  for y = 0, PLOT_H - 1 do
-    for x = 0, PLOT_W - 1 do
-      -- Alternating shade
-      local shade = ((x + y) % 2 == 0) and 0.06 or 0.04
-      local g = ((x + y) % 2 == 0) and 0.10 or 0.08
-      Iso.drawTile(x, y, shade, g, shade + 0.02, 0.95, { 0.20, 0.55, 0.32, 0.20 })
+local function drawSideWall(p, state, ax, ay, bx, by, elev, baseR, baseG, baseB, alpha)
+  -- Quad from (ax, ay, 0) -> (bx, by, 0) -> (bx, by, elev) -> (ax, ay, elev)
+  local p1x, p1y = Iso.toScreen(ax, ay, 0)
+  local p2x, p2y = Iso.toScreen(bx, by, 0)
+  local p3x, p3y = Iso.toScreen(bx, by, elev)
+  local p4x, p4y = Iso.toScreen(ax, ay, elev)
+  love.graphics.setColor(baseR, baseG, baseB, alpha)
+  love.graphics.polygon("fill", p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+  love.graphics.setColor(baseR * 1.3, baseG * 1.3, baseB * 1.3, alpha)
+  love.graphics.setLineWidth(1)
+  love.graphics.polygon("line", p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+end
+
+local function drawPlatform(p, state, t)
+  local unlocked = isUnlocked(p, state)
+  local elev = p.elev or 0
+  local dim = unlocked and 1.0 or 0.30  -- locked platforms are ghosted
+
+  -- Side walls (south + east faces are camera-visible in 2:1 iso)
+  if elev > 0 then
+    local sR, sG, sB = p.a[1] * 0.55, p.a[2] * 0.55, p.a[3] * 0.55
+    -- South wall (constant y = maxY)
+    drawSideWall(p, state, p.minX, p.maxY, p.maxX, p.maxY, elev,
+      sR, sG, sB, dim)
+    -- East wall (constant x = maxX) — slightly darker
+    drawSideWall(p, state, p.maxX, p.minY, p.maxX, p.maxY, elev,
+      sR * 0.75, sG * 0.75, sB * 0.75, dim)
+  end
+
+  -- Top floor — checkerboard tiles at the platform's elevation
+  for y = p.minY, p.maxY - 1 do
+    for x = p.minX, p.maxX - 1 do
+      local shadeA = ((x + y) % 2 == 0)
+      local fa = shadeA and p.a or p.b
+      Iso.drawTileAt(x, y, elev,
+        fa[1] * dim, fa[2] * dim, fa[3] * dim, unlocked and 1 or 0.45,
+        p.edge)
     end
   end
-  -- Edge ring
-  for k = 0, PLOT_W - 1 do
-    Iso.drawTile(k, 0, 0.08, 0.18, 0.10, 1, { 0.30, 1.00, 0.55, 0.30 })
-    Iso.drawTile(k, PLOT_H - 1, 0.08, 0.18, 0.10, 1, { 0.30, 1.00, 0.55, 0.30 })
+
+  -- Locked overlay: show the platform in silhouette with a centred
+  -- "LOCKED — <unlock_text>" badge so the player knows what to do.
+  if not unlocked then
+    local cx, cy = Iso.toScreen((p.minX + p.maxX) / 2, (p.minY + p.maxY) / 2, elev)
+    local font = love.graphics.getFont()
+    local title = "LOCKED  ·  " .. p.name
+    local sub = "// " .. (p.unlock_text or "(unlock condition met)")
+    local tw = font:getWidth(title)
+    local subw = font:getWidth(sub)
+    love.graphics.setColor(0, 0, 0, 0.75)
+    love.graphics.rectangle("fill", cx - math.max(tw, subw) / 2 - 12, cy - 22,
+                            math.max(tw, subw) + 24, 40, 4, 4)
+    love.graphics.setColor(p.edge[1], p.edge[2], p.edge[3], 0.95)
+    love.graphics.setLineWidth(1)
+    love.graphics.rectangle("line", cx - math.max(tw, subw) / 2 - 12, cy - 22,
+                            math.max(tw, subw) + 24, 40, 4, 4)
+    love.graphics.setColor(0.95, 1, 0.92, 1)
+    love.graphics.print(title, cx - tw / 2, cy - 18)
+    love.graphics.setColor(0.85, 0.85, 0.85, 0.95)
+    love.graphics.print(sub, cx - subw / 2, cy - 2)
   end
-  for k = 0, PLOT_H - 1 do
-    Iso.drawTile(0, k, 0.08, 0.18, 0.10, 1, { 0.30, 1.00, 0.55, 0.30 })
-    Iso.drawTile(PLOT_W - 1, k, 0.08, 0.18, 0.10, 1, { 0.30, 1.00, 0.55, 0.30 })
-  end
+end
+
+local function drawFloor(state, t)
+  -- Sort platforms by depth (lowest elevation first, then by world y)
+  -- so taller platforms render in front of shorter ones.
+  local sorted = {}
+  for _, p in ipairs(PLATFORMS) do table.insert(sorted, p) end
+  table.sort(sorted, function(a, b)
+    if (a.elev or 0) ~= (b.elev or 0) then return (a.elev or 0) < (b.elev or 0) end
+    return a.minY < b.minY
+  end)
+  for _, p in ipairs(sorted) do drawPlatform(p, state, t) end
 end
 
 local function drawPad(pad, state, t)
@@ -750,7 +903,7 @@ function M.draw(world, state, fonts, t)
   love.graphics.push()
   love.graphics.translate(CAMERA.sx, CAMERA.sy)
 
-  drawFloor(t)
+  drawFloor(state, t)
 
   -- Build a depth-sorted entity list: pads, characters, peers, built items, canisters.
   local entities = {}
