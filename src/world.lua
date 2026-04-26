@@ -370,55 +370,49 @@ local function tutorialPhase(state)
 end
 
 local function tickCanisters(world, state, dt)
-  -- Canister fills from the per-tier z_per_sec contribution.
-  -- Each miner type fills at its share of total z_per_sec.
-  local totalRate = state.z_per_sec or 0
-  if totalRate <= 0 then
-    -- Drain slowly when idle
+  -- Canisters store ZEPTONS (the apex resource). Their fill comes from
+  -- the player's monolith zepton-per-second — every canister gets an
+  -- equal share. With zero monoliths there's no zepton inflow and the
+  -- canisters slowly drain back to empty. Bitcoin (state.z) does not
+  -- enter this loop — that's the wallet's domain.
+  local zps = state.zeptons_per_sec or 0
+  local n = #world.canisters
+  local share = (n > 0) and (zps / n) or 0
+  if zps <= 0 then
     for k, v in pairs(world.canister_fills) do
       world.canister_fills[k] = math.max(0, v - dt * 0.05)
     end
     return
   end
+  -- Fill speed scaled so a monolith-light early game still gives
+  -- visible canister motion (1 monolith = 0.04 z/s = ~1.6% fill/s).
   for _, c in ipairs(world.canisters) do
-    local count = state.miners[c.key] or 0
-    if count > 0 then
-      local mult = state.mods.miner_kind[c.key] or 1
-      local share = count * c.def.produce * mult / totalRate
-      -- Time to fill scales inverse to share — small share = slow fill.
-      local fillRate = 0.04 + share * 0.30
-      local f = (world.canister_fills[c.key] or 0) + fillRate * dt
-      if f >= 1.0 then
-        f = 0
-        -- Combined pump rate limit: SFX + particles. Once every 1.2 s
-        -- across all canisters so a late-game player with many tiers
-        -- doesn't hear a machine-gun of pumps.
-        world._lastPumpAt = world._lastPumpAt or 0
-        if love.timer.getTime() - world._lastPumpAt > 1.2 then
-          world._lastPumpAt = love.timer.getTime()
-          Audio.canisterPump()
-          -- Pump particles fly from canister to the player character.
-          local sx, sy = M.toAbsScreen(c.wx, c.wy, 0)
-          local cx, cy = M.toAbsScreen(world.char.wx, world.char.wy, 0.4)
-          for k = 0, 12 do
-            state.particles:emit({
-              x = sx + (love.math.random() - 0.5) * 10,
-              y = sy - 30 + (love.math.random() - 0.5) * 10,
-              vx = (cx - sx) * 0.4 + (love.math.random() - 0.5) * 40,
-              vy = (cy - sy) * 0.4 + (love.math.random() - 0.5) * 40,
-              ax = 0, ay = 0,
-              life = 1.0, maxLife = 1.0,
-              color = { c.def.color[1], c.def.color[2], c.def.color[3] },
-              size = 4, drag = 1.2, kind = "trail",
-              rot = 0, vrot = 0,
-            })
-          end
+    local fillRate = 0.10 + share * 1.5
+    local f = (world.canister_fills[c.key] or 0) + fillRate * dt
+    if f >= 1.0 then
+      f = 0
+      world._lastPumpAt = world._lastPumpAt or 0
+      if love.timer.getTime() - world._lastPumpAt > 1.2 then
+        world._lastPumpAt = love.timer.getTime()
+        Audio.canisterPump()
+        local sx, sy = M.toAbsScreen(c.wx, c.wy, 0)
+        local cx, cy = M.toAbsScreen(world.char.wx, world.char.wy, 0.4)
+        for k = 0, 12 do
+          state.particles:emit({
+            x = sx + (love.math.random() - 0.5) * 10,
+            y = sy - 30 + (love.math.random() - 0.5) * 10,
+            vx = (cx - sx) * 0.4 + (love.math.random() - 0.5) * 40,
+            vy = (cy - sy) * 0.4 + (love.math.random() - 0.5) * 40,
+            ax = 0, ay = 0,
+            life = 1.0, maxLife = 1.0,
+            color = { 0.30, 1.00, 0.55 },  -- zepton green
+            size = 4, drag = 1.2, kind = "trail",
+            rot = 0, vrot = 0,
+          })
         end
       end
-      world.canister_fills[c.key] = f
-    else
-      world.canister_fills[c.key] = math.max(0, (world.canister_fills[c.key] or 0) - dt * 0.10)
     end
+    world.canister_fills[c.key] = f
   end
 end
 
@@ -765,11 +759,23 @@ function M.draw(world, state, fonts, t)
     pad._holdRef = world._padHold and world._padHold[i] or 0
     table.insert(entities, { kind = "pad", pad = pad, depth = Iso.depth(pad.wx, pad.wy, 0) })
   end
-  for _, c in ipairs(world.canisters) do
-    if (state.miners[c.key] or 0) > 0 then
+  -- Zepton canisters: only render once the player has at least one
+  -- monolith (zeptons are the canister's content; with no monoliths
+  -- there is no inflow and the canisters are just empty fixtures).
+  if (state.monoliths or 0) > 0 then
+    for _, c in ipairs(world.canisters) do
       table.insert(entities, { kind = "canister", c = c, depth = Iso.depth(c.wx, c.wy, 0) + 5 })
     end
   end
+
+  -- Bitcoin wallet — single big vault that visibly fills with gold as
+  -- the player's BTC balance grows. Sits south of the miner pads,
+  -- centered, so the BTC currency has a clearly identified destination.
+  table.insert(entities, {
+    kind = "btc_wallet",
+    wx = PLOT_W / 2, wy = 9.5,
+    depth = Iso.depth(PLOT_W / 2, 9.5, 0),
+  })
   for _, pad in ipairs(world.pads) do
     local count = (pad.kind == "miner" and state.miners or state.energy)[pad.key] or 0
     if count > 0 then
@@ -853,7 +859,8 @@ function M.draw(world, state, fonts, t)
     elseif e.kind == "canister" then
       local sx, sy = Iso.toScreen(e.c.wx, e.c.wy, 0)
       local fill = world.canister_fills[e.c.key] or 0
-      Assets.drawCanister(sx, sy, fill, e.c.def.color, t)
+      -- Always green — these are ZEPTON canisters, not BTC vessels.
+      Assets.drawCanister(sx, sy, fill, { 0.30, 1.00, 0.55 }, t)
     elseif e.kind == "built" then
       local sx, sy = Iso.toScreen(e.wx, e.wy, 0)
       -- Platform visibly grows as you build more of this tier.
@@ -882,6 +889,9 @@ function M.draw(world, state, fonts, t)
     elseif e.kind == "monolith" then
       local sx, sy = Iso.toScreen(e.wx, e.wy, 0)
       Assets.drawMonolith(sx, sy, t)
+    elseif e.kind == "btc_wallet" then
+      local sx, sy = Iso.toScreen(e.wx, e.wy, 0)
+      Assets.drawBTCWallet(sx, sy, state.z or 0, t)
     elseif e.kind == "flag" or e.kind == "peer_flag" then
       local fl = e.flag
       local sx, sy = Iso.toScreen(fl.wx, fl.wy, 0)

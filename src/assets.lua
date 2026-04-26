@@ -1011,6 +1011,94 @@ function M.drawMonolith(sx, sy, t, opts)
   end
 end
 
+-- Bitcoin wallet — a hardened vault that visibly fills with stacked
+-- gold coins as the player's BTC balance grows. Stack height saturates
+-- on a log scale so even endgame balances stay legible.
+function M.drawBTCWallet(sx, sy, btcAmount, t, opts)
+  opts = opts or {}
+  local W = 64
+  local H = 56
+  local bx = sx - W / 2
+  local by = sy - H
+
+  -- Shadow
+  love.graphics.setColor(0, 0, 0, 0.55)
+  love.graphics.ellipse("fill", sx, sy + 2, W * 0.55, 6)
+
+  -- Vault body
+  love.graphics.setColor(0.18, 0.16, 0.20, 1)
+  love.graphics.rectangle("fill", bx, by, W, H, 4, 4)
+  love.graphics.setColor(0.32, 0.30, 0.36, 1)
+  love.graphics.rectangle("fill", bx + 2, by + 2, W - 4, 8, 3, 3)
+  -- Lid hinges
+  love.graphics.setColor(0.55, 0.55, 0.62, 1)
+  love.graphics.circle("fill", bx + 8,  by + 6, 2)
+  love.graphics.circle("fill", bx + W - 8, by + 6, 2)
+  -- Outline
+  love.graphics.setColor(0.55, 0.55, 0.62, 1)
+  love.graphics.setLineWidth(1.5)
+  love.graphics.rectangle("line", bx, by, W, H, 4, 4)
+  love.graphics.setLineWidth(1)
+
+  -- Fill: log-scaled level
+  local fillFrac = 0
+  if btcAmount and btcAmount > 0 then
+    fillFrac = math.min(1, math.log10(1 + btcAmount) / 12)
+  end
+  local fillH = (H - 12) * fillFrac
+  if fillH > 0 then
+    love.graphics.setColor(0.20, 0.14, 0.04, 1)
+    love.graphics.rectangle("fill", bx + 4, by + H - 4 - fillH, W - 8, fillH, 2, 2)
+    -- Stack of glowing gold layers inside
+    local layers = math.max(1, math.floor(fillFrac * 6))
+    local layerH = fillH / layers
+    for i = 0, layers - 1 do
+      local k = (i + math.sin(t * 1.5 + i)) / layers
+      love.graphics.setColor(0.96, 0.65 + (1 - k) * 0.20, 0.18 + (1 - k) * 0.10, 0.95)
+      local ly = by + H - 4 - (i + 1) * layerH + 1
+      love.graphics.rectangle("fill", bx + 6, ly, W - 12, layerH - 2, 1, 1)
+    end
+    -- Coin highlights
+    for i = 0, math.min(4, layers - 1) do
+      love.graphics.setColor(1, 1, 0.85, 0.85)
+      love.graphics.circle("fill",
+        bx + 12 + (i * 12) + math.sin(t + i) * 1.5,
+        by + H - 4 - i * layerH - 4, 2.5)
+    end
+  end
+
+  -- ₿ glyph on the front (orange diamond emblem)
+  local emblemY = by + H - 14
+  love.graphics.setColor(0.96, 0.58, 0.10, 1)
+  love.graphics.polygon("fill",
+    sx, emblemY - 8,
+    sx + 8, emblemY,
+    sx, emblemY + 8,
+    sx - 8, emblemY)
+  love.graphics.setColor(0.45, 0.25, 0.05, 1)
+  love.graphics.setLineWidth(1.5)
+  love.graphics.polygon("line",
+    sx, emblemY - 8,
+    sx + 8, emblemY,
+    sx, emblemY + 8,
+    sx - 8, emblemY)
+  love.graphics.setLineWidth(1)
+  -- White tick mark inside the diamond
+  love.graphics.setColor(1, 1, 1, 0.9)
+  love.graphics.setLineWidth(2)
+  love.graphics.line(sx - 3, emblemY, sx, emblemY + 3, sx + 4, emblemY - 3)
+  love.graphics.setLineWidth(1)
+
+  -- Pulsing glow around the emblem when fill > 0
+  if fillFrac > 0.05 then
+    local pulse = 0.55 + math.sin(t * 2) * 0.20
+    for r = 12, 0, -1 do
+      love.graphics.setColor(0.96, 0.58, 0.10, (1 - r/12) * 0.18 * pulse)
+      love.graphics.circle("fill", sx, emblemY, 8 + r)
+    end
+  end
+end
+
 function M.drawCanister(sx, sy, fill, color, t, opts)
   opts = opts or {}
   fill = math.max(0, math.min(1, fill or 0))
