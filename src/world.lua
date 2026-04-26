@@ -1052,15 +1052,15 @@ local function drawHelpBanner(world, state, fonts)
     love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
     love.graphics.print("Energy on top, mining on bottom. Climb the tiers as your Z balance grows.", x + 20, y + 90)
   elseif phase == 3 then
-    love.graphics.print("[TAB] swaps to CORE OPS — the dashboard / Z store. Buy upgrades, see your", x + 20, y + 42)
+    love.graphics.print("[SPACE] swaps to CORE OPS — the dashboard / Z store. Buy upgrades, see your", x + 20, y + 42)
     love.graphics.print("hash rate, find blocks, check the live mesh, and click the orb for a bonus.", x + 20, y + 62)
     love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
-    love.graphics.print("Tab back here any time to keep building.", x + 20, y + 90)
+    love.graphics.print("[SPACE] back here any time to keep building.", x + 20, y + 90)
   else
     love.graphics.print("[WASD] walk  ·  step on a glowing pad to build (hold for ×10 / MAX)", x + 20, y + 42)
     love.graphics.print("[E] wave  ·  [F] flag  ·  [C/V/B/N/M] palette / trail / aura / halo / wings", x + 20, y + 62)
     love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
-    love.graphics.print("[TAB] core ops & Z store  ·  [H] hide this banner  ·  [P] pause  ·  [S] save", x + 20, y + 90)
+    love.graphics.print("[SPACE] core ops & Z store  ·  [H] hide this banner  ·  [P] pause  ·  [S] save", x + 20, y + 90)
   end
 
   love.graphics.setFont(fonts.tiny)
@@ -1307,7 +1307,7 @@ function M.draw(world, state, fonts, t)
   love.graphics.line(0, 128, DESIGN_W, 128)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.55, 1, 0.75, 1)
-  love.graphics.print("WORLD VIEW  ·  step on a pad to build  ·  [TAB] core ops", 24, 102)
+  love.graphics.print("WORLD VIEW  ·  step on a pad to build  ·  [SPACE] core ops", 24, 102)
 
   -- Banner help
   if world.helpVisible then

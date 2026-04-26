@@ -1673,15 +1673,15 @@ function M.keypressed(state, key)
     return
   end
 
-  -- Scene toggle: Tab moves browser focus out of the iframe (it's NOT
-  -- in the portal's preventDefault list — only space + arrow keys are),
-  -- which fires love.focus(false) and auto-pauses the game so the
-  -- screen ends up looking blank. Bind primarily to SPACE (which IS
-  -- preventDefaulted by the portal) and accept Tab/Q as aliases. The
-  -- focus-loss guard in M.focus also kills the auto-pause within 1 s
-  -- of any scene toggle so even Tab still works without the blank-
-  -- screen bug.
-  local isToggle = (key == "space" or key == "tab" or key == "q")
+  -- Scene toggle: SPACE only (with Q as a no-conflict alias). Tab is
+  -- intentionally NOT bound here — the portal doesn't preventDefault
+  -- it, so pressing Tab moves browser focus out of the iframe and
+  -- subsequent keystrokes route to whichever portal chrome element
+  -- now has focus. Even with the focus-loss pause guard, the game
+  -- felt "stuck" because keyboard input no longer reached it. Space
+  -- IS preventDefaulted by the portal, so it stays inside the iframe.
+  -- Mouse users can also click the WORLD / OPS pill icons in the HUD.
+  local isToggle = (key == "space" or key == "q")
 
   -- World view scoped keys
   if state.scene == "world" and state.world then

@@ -281,13 +281,13 @@ function M.draw(state, fonts, t)
     pill(360, 14, state.scene == "world", drawWorldIcon, "world", "WORLD VIEW")
     pill(414, 14, state.scene == "play",  drawOpsIcon,   "play",  "OPS DASHBOARD")
     -- Inline label beneath both icons identifying the active view, plus
-    -- the TAB-toggle hint
+    -- the toggle hint
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.55, 0.95, 0.75, 0.95)
     local label = (state.scene == "world") and "WORLD VIEW" or "OPS DASHBOARD"
     love.graphics.print(label, 360, 56)
     love.graphics.setColor(0.45, 0.65, 0.55, 0.75)
-    love.graphics.print("[SPACE] / [TAB] toggle", 360, 70)
+    love.graphics.print("[SPACE] toggle", 360, 70)
   end
 
   -- Global SURGE banner — bold full-width strip when active

@@ -372,7 +372,7 @@ local function drawFooterStrip(state, fonts, t)
   -- Hint columns
   love.graphics.setFont(fonts.tiny)
   love.graphics.setColor(0.50, 0.85, 0.65, 0.95)
-  love.graphics.print("◐ CLICK CORE TO MINE  │  [SHIFT] BUY ×10  │  [CTRL] BUY MAX  │  [P] PAUSE  │  [S] SAVE  │  [1-4] TABS  │  [SPACE] / [TAB] WORLD",
+  love.graphics.print("◐ CLICK CORE TO MINE  │  [SHIFT] BUY ×10  │  [CTRL] BUY MAX  │  [P] PAUSE  │  [S] SAVE  │  [1-4] TABS  │  [SPACE] WORLD",
     fx + 18, fy + 18)
 
   -- Day cycle info
