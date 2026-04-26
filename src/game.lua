@@ -1109,15 +1109,31 @@ end
 
 function M.joinPool(state, target_id)
   if state.scene ~= "play" and state.scene ~= "world" then return end
-  -- Cost: 1% of Z to join
+  -- Send a pool REQUEST. The partner sees an ACCEPT/DECLINE banner;
+  -- pool only becomes active if they accept. The 1% Z fee is charged
+  -- only on accept (handled in the pool_accept event handler).
+  Network.interact(state.network, target_id, "pool")
+  Audio.tab()
+  Fx.glow("#88aaff", 0.40, 500)
+  M.message(state, "Pool request sent — awaiting response", { 0.55, 0.85, 0.95 })
+end
+
+function M.acceptPool(state, target_id)
+  if state.scene ~= "play" and state.scene ~= "world" then return end
+  -- The 1% fee is paid on acceptance.
   local cost = math.max(50, state.z * 0.01)
   if state.z < cost then Audio.error_(); return end
   state.z = state.z - cost
-  Network.interact(state.network, target_id, "pool", cost)
+  Network.interact(state.network, target_id, "accept_pool")
   Audio.peerJoin()
   Fx.glow("#88aaff", 0.55, 700)
-  Fx.ripple("#88aaff", 0.5, 0.5, 900)
   M.message(state, "Pool sync established", { 0.55, 0.85, 0.95 })
+end
+
+function M.declinePool(state, target_id)
+  Network.interact(state.network, target_id, "decline_pool")
+  Audio.tab()
+  M.message(state, "Pool request declined", { 0.85, 0.55, 0.55 })
 end
 
 function M.leavePool(state)
@@ -1435,13 +1451,15 @@ function M.mousepressed(state, lx, ly, button)
       ctrl  = love.keyboard.isDown("lctrl", "rctrl"),
     }
     Shop.mousepressed(state.shop, lx, ly, button, state, {
-      onTabChange  = function(id) Audio.tab() end,
-      onBuyMiner   = function(def, qty) M.buyMiner(state, def, qty) end,
-      onBuyEnergy  = function(def, qty) M.buyEnergy(state, def, qty) end,
-      onBuyUpgrade = function(def) M.buyUpgrade(state, def) end,
-      onBoost      = function(id) M.boost(state, id) end,
-      onPool       = function(id) M.joinPool(state, id) end,
-      onLeavePool  = function() M.leavePool(state) end,
+      onTabChange   = function(id) Audio.tab() end,
+      onBuyMiner    = function(def, qty) M.buyMiner(state, def, qty) end,
+      onBuyEnergy   = function(def, qty) M.buyEnergy(state, def, qty) end,
+      onBuyUpgrade  = function(def) M.buyUpgrade(state, def) end,
+      onBoost       = function(id) M.boost(state, id) end,
+      onPool        = function(id) M.joinPool(state, id) end,
+      onLeavePool   = function() M.leavePool(state) end,
+      onAcceptPool  = function(id) M.acceptPool(state, id) end,
+      onDeclinePool = function(id) M.declinePool(state, id) end,
     }, mods)
   end
 end

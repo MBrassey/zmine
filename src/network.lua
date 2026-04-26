@@ -427,22 +427,58 @@ local function onNetEvent(state, evt)
         { 1, 0.85, 0.45 })
     end
   elseif evt.verb == "pool_request" then
-    -- Inbound pool request. Auto-accept (cosmetic; the requester pays/earns
-    -- locally based on our broadcast stats).
+    -- Inbound pool request. We do NOT auto-accept — the player gets
+    -- a banner with ACCEPT / DECLINE buttons. shop.lua reads
+    -- state.pool_pending_incoming to render the prompt.
     local target = payload.target or payload.to
     if target and state.self_userId and target == state.self_userId then
-      Net.send("pool_accept", { target = evt.userId })
       local senderName = evt.handle or "operator"
       local senderPeer = state.realPeers[evt.userId or ""]
       if senderPeer then senderName = senderPeer.facility_name end
+      state.pool_pending_incoming = {
+        from_id = evt.userId,
+        from_name = senderName,
+        received_at = state._t,
+      }
       pushEvent(state, "pool_in",
-        string.format("⛓  %s synced to your pool", senderName),
+        string.format("⛓  %s wants to pool with you", senderName),
         { 0.55, 0.85, 0.95 })
     end
   elseif evt.verb == "pool_accept" then
-    -- No-op; we already credit locally based on their stats.
+    -- Our request was accepted. Now we're partnered.
+    local target = payload.target or payload.to
+    if target and state.self_userId and target == state.self_userId
+       and state.pool_pending_outgoing
+       and state.pool_pending_outgoing.target_id == evt.userId then
+      state.pool_with = evt.userId
+      state.pool_pending_outgoing = nil
+      state.pool_started_at = state._t
+      local who = (state.realPeers[evt.userId or ""] and state.realPeers[evt.userId].facility_name)
+                  or evt.handle or "operator"
+      pushEvent(state, "pool_accept",
+        string.format("⛓  %s accepted your pool request", who),
+        { 0.55, 1, 0.75 })
+    end
+  elseif evt.verb == "pool_decline" then
+    local target = payload.target or payload.to
+    if target and state.self_userId and target == state.self_userId
+       and state.pool_pending_outgoing
+       and state.pool_pending_outgoing.target_id == evt.userId then
+      state.pool_pending_outgoing = nil
+      local who = (state.realPeers[evt.userId or ""] and state.realPeers[evt.userId].facility_name)
+                  or evt.handle or "operator"
+      pushEvent(state, "pool_decline",
+        string.format("⛓  %s declined the pool request", who),
+        { 1, 0.55, 0.55 })
+    end
   elseif evt.verb == "pool_leave" then
-    -- Cosmetic
+    -- The other side ended the pool — clear our side too.
+    if state.pool_with == evt.userId then
+      state.pool_with = nil
+      pushEvent(state, "pool_leave",
+        string.format("⛓  %s left the pool", evt.handle or "operator"),
+        { 0.85, 0.55, 0.55 })
+    end
   elseif evt.verb == "pos" then
     -- Real-time peer position update. Stored on the realPeer record;
     -- world.lua reads this and steers the peer character toward it.
@@ -1041,16 +1077,37 @@ function M.interact(state, target_id, kind, paid)
       })
     end
   elseif kind == "pool" then
-    state.pool_with = target_id
-    state.pool_started_at = state._t
+    -- Send a request — the partner accepts or declines. pool_with is
+    -- set only when their pool_accept arrives. (For sim ghosts: skip
+    -- entirely; you can't pool with NPCs anymore.)
     if state.mode == "real" and not isSimId(target_id) then
+      state.pool_pending_outgoing = {
+        target_id = target_id,
+        sent_at = state._t,
+      }
       Net.send("pool_request", {}, target_id)
+    end
+  elseif kind == "accept_pool" then
+    -- Accept an inbound request. Sets us partnered; tells the inviter.
+    if state.mode == "real" and state.pool_pending_incoming
+       and state.pool_pending_incoming.from_id == target_id then
+      state.pool_with = target_id
+      state.pool_started_at = state._t
+      Net.send("pool_accept", {}, target_id)
+      state.pool_pending_incoming = nil
+    end
+  elseif kind == "decline_pool" then
+    if state.mode == "real" and state.pool_pending_incoming
+       and state.pool_pending_incoming.from_id == target_id then
+      Net.send("pool_decline", {}, target_id)
+      state.pool_pending_incoming = nil
     end
   elseif kind == "leave_pool" then
     if state.mode == "real" and state.pool_with and not isSimId(state.pool_with) then
       Net.send("pool_leave", {}, state.pool_with)
     end
     state.pool_with = nil
+    state.pool_pending_outgoing = nil
   end
 end
 

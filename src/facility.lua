@@ -122,13 +122,20 @@ local function drawTelemetryStrip(state, fonts, t)
   local hw = fonts.small:getWidth(hdr)
   love.graphics.print(hdr, AREA.x + AREA.w / 2 - hw / 2, AREA.y + 14)
 
-  -- Pool indicator (mid line, if pooled)
+  -- Pool indicator (mid line, if pooled). state.network.players was
+  -- nil after the sim-ghosts removal — caused an ipairs(nil) crash
+  -- the moment a pool became active. Look up the partner via
+  -- realPeers (real mode) or snapshots (catches offline-known too).
   if state.network and state.network.pool_with then
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.55, 0.85, 0.95, 0.95)
     local poolName = "?"
-    for _, p in ipairs(state.network.players) do
-      if p.id == state.network.pool_with then poolName = p.name; break end
+    local rp = state.network.realPeers and state.network.realPeers[state.network.pool_with]
+    if rp then poolName = rp.facility_name or rp.handle or "?" end
+    if poolName == "?" then
+      for _, sn in ipairs(state.network._snapshots or {}) do
+        if sn.id == state.network.pool_with then poolName = sn.name; break end
+      end
     end
     local txt = "⛓  pooled with " .. poolName
     local tw = fonts.tiny:getWidth(txt)

@@ -554,12 +554,17 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
       startX, lay + 56, cardW - 14, "right")
   end
 
-  -- Pool indicator
+  -- Pool indicator (lookup partner via realPeers / snapshots — the
+  -- old `network.players` field was nil after the sim-ghost removal).
   if network.pool_with then
     love.graphics.setColor(0.55, 0.85, 0.95, 0.95)
     local poolName = "?"
-    for _, p in ipairs(network.players) do
-      if p.id == network.pool_with then poolName = p.name; break end
+    local rp = network.realPeers and network.realPeers[network.pool_with]
+    if rp then poolName = rp.facility_name or rp.handle or "?" end
+    if poolName == "?" then
+      for _, sn in ipairs(network._snapshots or {}) do
+        if sn.id == network.pool_with then poolName = sn.name; break end
+      end
     end
     love.graphics.printf("⛓ POOLED w/ " .. poolName, startX, lay + 56, cardW - 14, "right")
   end
@@ -606,6 +611,59 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
 
   -- Scissor list (canvas-relative, design coords)
   love.graphics.setScissor(startX, listY, cardW, listH)
+
+  -- Inbound pool request banner — sits above the list with ACCEPT and
+  -- DECLINE buttons. The receiver decides; pool only forms on accept.
+  if network.pool_pending_incoming then
+    local req = network.pool_pending_incoming
+    local bx, by, bw, bh = startX, listY, cardW, 70
+    love.graphics.setColor(0.06, 0.18, 0.10, 0.95)
+    love.graphics.rectangle("fill", bx, by, bw, bh, 6, 6)
+    love.graphics.setColor(0.55, 0.95, 1.0, 0.95)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", bx, by, bw, bh, 6, 6)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(0.85, 1, 0.92, 1)
+    love.graphics.print("⛓  POOL REQUEST  —  " .. (req.from_name or "operator"),
+      bx + 16, by + 10)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(0.55, 0.85, 0.95, 0.95)
+    love.graphics.print("Accepting costs 1% of your Z balance",
+      bx + 16, by + 36)
+    -- ACCEPT
+    local axw, axh = 110, 32
+    local axx = bx + bw - (axw * 2 + 16)
+    local axy = by + (bh - axh) / 2
+    local hovA = inRect(mx, my, axx, axy, axw, axh)
+    love.graphics.setColor(hovA and 0.18 or 0.10, hovA and 0.45 or 0.30, hovA and 0.32 or 0.18, 1)
+    love.graphics.rectangle("fill", axx, axy, axw, axh, 4, 4)
+    love.graphics.setColor(0.55, 1, 0.75, hovA and 1 or 0.8)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", axx, axy, axw, axh, 4, 4)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(0.95, 1, 0.92, 1)
+    love.graphics.printf("ACCEPT", axx, axy + 7, axw, "center")
+    table.insert(shop._buttons, { kind = "accept_pool", target_id = req.from_id,
+                                  x = axx, y = axy, w = axw, h = axh })
+    -- DECLINE
+    local dxx = axx + axw + 8
+    local hovD = inRect(mx, my, dxx, axy, axw, axh)
+    love.graphics.setColor(hovD and 0.45 or 0.30, hovD and 0.20 or 0.10, hovD and 0.20 or 0.10, 1)
+    love.graphics.rectangle("fill", dxx, axy, axw, axh, 4, 4)
+    love.graphics.setColor(1, 0.55, 0.55, hovD and 1 or 0.8)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", dxx, axy, axw, axh, 4, 4)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(0.95, 1, 0.92, 1)
+    love.graphics.printf("DECLINE", dxx, axy + 7, axw, "center")
+    table.insert(shop._buttons, { kind = "decline_pool", target_id = req.from_id,
+                                  x = dxx, y = axy, w = axw, h = axh })
+    -- Compress the player-list height so the banner doesn't overlap.
+    listY = listY + bh + 8
+    listH = listH - bh - 8
+  end
 
   -- Solo operator: empty list. Show a friendly hint instead of a void.
   if #snaps == 0 then
@@ -706,21 +764,40 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
       love.graphics.printf("BOOST " .. boostStr, b1x, by1 + 8, btnW, "center")
       table.insert(shop._buttons, { kind = "boost", target_id = snap.id, x = b1x, y = by1, w = btnW, h = btnH })
 
-      -- Pool / Leave
+      -- Pool / Pending / Leave — three-state button.
       local poolB_x = b1x + btnW + 4
       local hover2 = inRect(mx, my, poolB_x, by1, btnW, btnH)
       local pooled = (network.pool_with == snap.id)
+      local pending = (network.pool_pending_outgoing
+                       and network.pool_pending_outgoing.target_id == snap.id)
+      local label, fillR, fillG, fillB, lineR, lineG, lineB
+      local btnKind
       if pooled then
-        love.graphics.setColor(hover2 and 0.55 or 0.35, hover2 and 0.20 or 0.10, hover2 and 0.20 or 0.10, 1)
+        label = "LEAVE"
+        fillR, fillG, fillB = (hover2 and 0.55 or 0.35), (hover2 and 0.20 or 0.10), (hover2 and 0.20 or 0.10)
+        lineR, lineG, lineB = 1, 0.55, 0.55
+        btnKind = "leave_pool"
+      elseif pending then
+        label = "PENDING"
+        fillR, fillG, fillB = 0.20, 0.18, 0.10
+        lineR, lineG, lineB = 0.85, 0.75, 0.30
+        btnKind = nil  -- not clickable
       else
-        love.graphics.setColor(hover2 and 0.18 or 0.10, hover2 and 0.45 or 0.30, hover2 and 0.32 or 0.18, 1)
+        label = "POOL"
+        fillR, fillG, fillB = (hover2 and 0.18 or 0.10), (hover2 and 0.45 or 0.30), (hover2 and 0.32 or 0.18)
+        lineR, lineG, lineB = 0.55, 0.95, 0.65
+        btnKind = "pool"
       end
+      love.graphics.setColor(fillR, fillG, fillB, 1)
       love.graphics.rectangle("fill", poolB_x, by1, btnW, btnH, 4, 4)
-      love.graphics.setColor(pooled and 1 or 0.55, pooled and 0.55 or 0.95, pooled and 0.55 or 0.65, hover2 and 1 or 0.7)
+      love.graphics.setColor(lineR, lineG, lineB, hover2 and 1 or 0.7)
       love.graphics.rectangle("line", poolB_x, by1, btnW, btnH, 4, 4)
       love.graphics.setColor(0.85, 0.95, 0.85, 1)
-      love.graphics.printf(pooled and "LEAVE" or "POOL", poolB_x, by1 + 8, btnW, "center")
-      table.insert(shop._buttons, { kind = pooled and "leave_pool" or "pool", target_id = snap.id, x = poolB_x, y = by1, w = btnW, h = btnH })
+      love.graphics.printf(label, poolB_x, by1 + 8, btnW, "center")
+      if btnKind then
+        table.insert(shop._buttons, { kind = btnKind, target_id = snap.id,
+                                       x = poolB_x, y = by1, w = btnW, h = btnH })
+      end
 
       -- Compare row (no-op cosmetic)
       love.graphics.setFont(fonts.tiny)
@@ -924,6 +1001,10 @@ function M.mousepressed(shop, lx, ly, button, state, callbacks, mods)
           if callbacks.onPool then callbacks.onPool(b.target_id) end
         elseif b.kind == "leave_pool" then
           if callbacks.onLeavePool then callbacks.onLeavePool() end
+        elseif b.kind == "accept_pool" then
+          if callbacks.onAcceptPool then callbacks.onAcceptPool(b.target_id) end
+        elseif b.kind == "decline_pool" then
+          if callbacks.onDeclinePool then callbacks.onDeclinePool(b.target_id) end
         end
         return true
       end
