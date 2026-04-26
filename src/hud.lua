@@ -102,22 +102,26 @@ function M.draw(state, fonts, t)
   end
 
   -- Section: HASH and BLOCK chips, in their own column at right of energy.
-  -- Bands: HASH/BLOCK column 1480-1670 (190w), LIVE badge column 1690-1900 (210w).
-  local hx = 1480
+  -- Bands: HASH/BLOCK column 1492-1670 (12px alley after energy bar),
+  -- LIVE badge column 1690-1900 (210w).
+  local hx = 1492
+  -- HASH chip — amber so the dual-gold collision with BLOCK TIMELINE
+  -- in the console is broken; the console's gold is reserved for
+  -- block-found semantics.
   love.graphics.setFont(fonts.tiny)
-  love.graphics.setColor(0.85, 0.95, 0.55, 1)
-  love.graphics.print("HASH", hx, 12)
-  love.graphics.setFont(fonts.small)
-  love.graphics.setColor(1, 0.95, 0.65, 1)
-  love.graphics.print(fmt.hashRate(state.hashrate or 0), hx, 28)
+  love.graphics.setColor(1, 0.75, 0.30, 1)
+  love.graphics.print("HASH", hx, 10)
+  love.graphics.setFont(fonts.medium)
+  love.graphics.setColor(1, 0.85, 0.40, 1)
+  love.graphics.print(fmt.hashRate(state.hashrate or 0), hx, 26)
 
   love.graphics.setFont(fonts.tiny)
-  love.graphics.setColor(0.85, 0.95, 0.55, 1)
-  love.graphics.print("BLOCK", hx, 50)
+  love.graphics.setColor(1, 0.75, 0.30, 1)
+  love.graphics.print("BLOCK", hx, 52)
   love.graphics.setFont(fonts.small)
-  love.graphics.setColor(1, 0.95, 0.65, 1)
+  love.graphics.setColor(1, 0.85, 0.40, 1)
   love.graphics.print(string.format("#%d  ·  %s",
-    state.block_height or 0, fmt.time(state.play_time or 0)), hx, 66)
+    state.block_height or 0, fmt.time(state.play_time or 0)), hx, 68)
 
   -- Live mesh badge — slim, right-pinned, no overlap with HASH/BLOCK.
   local Network = require "src.network"
@@ -165,7 +169,7 @@ function M.draw(state, fonts, t)
     end
   end
 
-  -- TAB · WORLD pill — discoverability for the world toggle
+  -- TAB · WORLD pill — discoverability for the world toggle.
   do
     local px, py = 360, 14
     local pw, ph = 160, 32
@@ -181,7 +185,8 @@ function M.draw(state, fonts, t)
     love.graphics.print("[ TAB ]", px + 10, py + 10)
     love.graphics.setFont(fonts.bold)
     love.graphics.setColor(0.85, 1, 0.92, 1)
-    love.graphics.print(state.scene == "world" and "↩ CORE OPS" or "↹ ENTER WORLD", px + 50, py + 6)
+    -- Drop the redundant arrow glyph; "[ TAB ]" already signals the toggle.
+    love.graphics.print(state.scene == "world" and "CORE OPS" or "ENTER WORLD", px + 60, py + 6)
   end
 
   -- Global SURGE banner — bold full-width strip when active
@@ -215,10 +220,11 @@ function M.draw(state, fonts, t)
     local lw = fonts.bold:getWidth(label)
     local px = DESIGN_W / 2 - lw / 2 - 10
     local py = 0
+    -- 28px tall so bold descenders aren't clipped
     love.graphics.setColor(0.20, 0.04, 0.02, 0.95)
-    love.graphics.rectangle("fill", px, py, lw + 20, 18, 0, 0)
+    love.graphics.rectangle("fill", px, py, lw + 20, 28, 0, 0)
     love.graphics.setColor(1, 0.55, 0.30, pulse)
-    love.graphics.print(label, px + 10, py + 1)
+    love.graphics.print(label, px + 10, py + 3)
   end
 end
 

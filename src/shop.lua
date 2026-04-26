@@ -564,10 +564,9 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
     love.graphics.printf("⛓ POOLED w/ " .. poolName, startX, lay + 56, cardW - 14, "right")
   end
 
-  -- Sort snaps so live operators surface first, demo placeholders last,
-  -- and offline-known peers stay accessible without burying the live ones.
+  -- Sort snaps so live operators surface first; offline-known peers
+  -- stay accessible without burying the live ones.
   local function statusRank(s)
-    if s.placeholder then return 4 end
     if s.status == "online"  then return 0 end
     if s.status == "afk"     then return 1 end
     if s.status == "offline" then return 2 end
@@ -579,7 +578,6 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
     return (a.z_lifetime or 0) > (b.z_lifetime or 0)
   end)
 
-  -- Compute subhead injections: a thin header row whenever the section changes
   local sections = {}
   local lastRank
   for i, s in ipairs(snaps) do
@@ -588,9 +586,7 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
       local label
       if r == 0 then label = "ONLINE"
       elseif r == 1 then label = "AFK"
-      elseif r == 2 then label = "OFFLINE — KNOWN"
-      elseif r == 3 then label = "OFFLINE"
-      else label = "DEMO PEERS" end
+      else label = "OFFLINE — KNOWN" end
       sections[#sections + 1] = { i = i, label = label }
       lastRank = r
     end
@@ -610,6 +606,26 @@ local function drawNetworkPanel(shop, state, fonts, t, mx, my)
 
   -- Scissor list (canvas-relative, design coords)
   love.graphics.setScissor(startX, listY, cardW, listH)
+
+  -- Solo operator: empty list. Show a friendly hint instead of a void.
+  if #snaps == 0 then
+    love.graphics.setColor(0.04, 0.07, 0.06, 0.95)
+    love.graphics.rectangle("fill", startX, listY + 60, cardW, 180, 8, 8)
+    love.graphics.setColor(0.30, 0.85, 0.55, 0.5)
+    love.graphics.rectangle("line", startX, listY + 60, cardW, 180, 8, 8)
+    love.graphics.setFont(fonts.bold)
+    love.graphics.setColor(0.55, 1, 0.75, 1)
+    love.graphics.printf("YOU ARE THE ONLY OPERATOR HERE", startX, listY + 84, cardW, "center")
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(0.85, 0.95, 0.92, 1)
+    love.graphics.printf("Mine alone, or invite a friend to join the A-TEK Mesh.",
+      startX + 20, listY + 124, cardW - 40, "center")
+    love.graphics.setColor(0.55, 0.85, 0.65, 0.85)
+    love.graphics.printf("When other operators connect, they'll appear here in real time:",
+      startX + 20, listY + 154, cardW - 40, "center")
+    love.graphics.printf("you'll see their facility, hash rate, and live mining events.",
+      startX + 20, listY + 174, cardW - 40, "center")
+  end
 
   -- Walk snaps with subhead injections
   local rowOffset = 0
@@ -776,12 +792,21 @@ function M.draw(shop, state, fonts, t, mx, my)
   local lah = listAreaH()
 
   local list, db, cardH, drawCard
+  -- For the upgrades tab we use the pre-categorized flat list (each
+  -- entry has a hidden _category tag) so the iterator can inject
+  -- subheads when the category changes.
   if shop.tab == "miners" then
     list = minersDb.list; cardH = CARD_H.miners; drawCard = drawMinerCard
   elseif shop.tab == "energy" then
     list = energyDb.list; cardH = CARD_H.energy; drawCard = drawEnergyCard
   else
-    list = upgradesDb.list; cardH = CARD_H.upgrades; drawCard = drawUpgradeCard
+    -- Build a flat list with category boundaries from upgradesDb.categories
+    list = {}
+    for _, c in ipairs(upgradesDb.categories or {}) do
+      table.insert(list, { _category = c.name })
+      for _, u in ipairs(c.items) do table.insert(list, u) end
+    end
+    cardH = CARD_H.upgrades; drawCard = drawUpgradeCard
   end
 
   local cardW = PANEL.w - 24
@@ -795,15 +820,45 @@ function M.draw(shop, state, fonts, t, mx, my)
   local scroll = shop.scroll[shop.tab]
 
   scissorList()
-  local startY = lay - scroll
+  -- For the upgrades tab the list contains synthetic `_category` entries
+  -- that render as subheads instead of cards. Compute total y on the fly.
+  local subheadH = 26
+  local cardWWithoutScroll = cardW
+  scissorList()
+  local cursorY = lay - scroll
+  -- Recompute total respecting subheads
+  local realTotal = 0
+  for _, def in ipairs(list) do
+    if def._category then realTotal = realTotal + subheadH + 4
+    else realTotal = realTotal + cardH + LIST_PAD end
+  end
+  maxScroll = math.max(0, realTotal - lah)
+  if shop.scroll[shop.tab] > maxScroll then shop.scroll[shop.tab] = maxScroll end
+  if shop.scroll[shop.tab] < 0 then shop.scroll[shop.tab] = 0 end
+  scroll = shop.scroll[shop.tab]
+  cursorY = lay - scroll
+
   for i, def in ipairs(list) do
-    local y = startY + (i - 1) * (cardH + LIST_PAD)
-    -- Cull
-    if y + cardH > lay - cardH and y < lay + lah + cardH then
-      local btn = drawCard(shop, def, startX, y, cardW, cardH, state, fonts, t, mx, my)
-      if btn then table.insert(shop._buttons, btn) end
+    if def._category then
+      if cursorY + subheadH > lay - subheadH and cursorY < lay + lah then
+        love.graphics.setColor(0.06, 0.13, 0.10, 1)
+        love.graphics.rectangle("fill", startX, cursorY, cardW, subheadH, 4, 4)
+        love.graphics.setColor(0.30, 0.85, 0.55, 0.50)
+        love.graphics.rectangle("line", startX, cursorY, cardW, subheadH, 4, 4)
+        love.graphics.setFont(fonts.tiny)
+        love.graphics.setColor(0.55, 0.95, 0.75, 1)
+        love.graphics.print(def._category, startX + 10, cursorY + 7)
+      end
+      cursorY = cursorY + subheadH + 4
+    else
+      if cursorY + cardH > lay - cardH and cursorY < lay + lah + cardH then
+        local btn = drawCard(shop, def, startX, cursorY, cardW, cardH, state, fonts, t, mx, my)
+        if btn then table.insert(shop._buttons, btn) end
+      end
+      cursorY = cursorY + cardH + LIST_PAD
     end
   end
+  total = realTotal
   love.graphics.setScissor()
 
   -- Scrollbar

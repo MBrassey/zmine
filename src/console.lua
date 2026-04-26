@@ -188,36 +188,85 @@ local function drawTierBreakdown(state, x, y, w, h, fonts)
   local total = 0
   for _, e in ipairs(entries) do total = total + e.contrib end
   if total <= 0 then return end
-  -- Stacked horizontal bar chart
+  local marginT = 22
+  -- When 7+ tiers contribute, bars overflow vertically; switch to one
+  -- stacked horizontal bar with colored segments + a row of mini-tags.
+  if #entries > 6 then
+    local barX = x + 8
+    local barY = y + marginT + 2
+    local barW = w - 16
+    local barH = 18
+    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.rectangle("fill", barX, barY, barW, barH, 3, 3)
+    local cursor = 0
+    for _, e in ipairs(entries) do
+      local frac = e.contrib / total
+      local seg = barW * frac
+      love.graphics.setColor(e.color[1], e.color[2], e.color[3], 1)
+      love.graphics.rectangle("fill", barX + cursor, barY, seg, barH)
+      cursor = cursor + seg
+    end
+    -- Tag legend below the bar (max 5 most-contributing entries).
+    table.sort(entries, function(a, b) return a.contrib > b.contrib end)
+    love.graphics.setFont(fonts.tiny)
+    local legendY = barY + barH + 4
+    local cursorX = barX
+    local rowH = 14
+    for i, e in ipairs(entries) do
+      if i > 8 then break end
+      love.graphics.setColor(e.color[1], e.color[2], e.color[3], 1)
+      love.graphics.rectangle("fill", cursorX, legendY + 4, 6, 6)
+      love.graphics.setColor(0.95, 1, 0.92, 1)
+      local label = string.format("%s %d%%", e.name, math.floor(e.contrib / total * 100 + 0.5))
+      love.graphics.print(label, cursorX + 9, legendY)
+      cursorX = cursorX + fonts.tiny:getWidth(label) + 16
+      if cursorX > x + w - 80 then
+        cursorX = barX
+        legendY = legendY + rowH
+      end
+    end
+    return
+  end
+  -- ≤6 tiers: original horizontal-bar-per-row layout
   local barH = 14
   local rowGap = 4
-  local marginT = 22
   local rowsTotal = #entries
   local available = h - marginT - 4
   local rowH = math.min(barH + rowGap, available / rowsTotal)
   local barWmax = w - 76
   for i, e in ipairs(entries) do
     local ry = y + marginT + (i - 1) * rowH
-    -- Label
     love.graphics.setFont(fonts.tiny)
     love.graphics.setColor(0.85, 0.95, 0.92, 1)
     love.graphics.print(e.name, x + 6, ry + 1)
-    -- Bar bg
     love.graphics.setColor(0.10, 0.10, 0.12, 1)
     love.graphics.rectangle("fill", x + 60, ry, barWmax, barH - 2, 2, 2)
-    -- Bar fill
     local frac = e.contrib / total
     love.graphics.setColor(e.color[1], e.color[2], e.color[3], 1)
     love.graphics.rectangle("fill", x + 60, ry, barWmax * frac, barH - 2, 2, 2)
-    -- Pct
     love.graphics.setColor(0.95, 1, 0.92, 1)
     love.graphics.printf(string.format("%d%%", math.floor(frac * 100 + 0.5)),
       x + 60, ry, barWmax - 4, "right")
   end
 end
 
-local function drawBlockTimeline(hist, x, y, w, h, fonts, t)
+local function drawBlockTimeline(hist, x, y, w, h, fonts, t, state)
   drawChartFrame(x, y, w, h, "BLOCK TIMELINE", fonts, { 1, 0.95, 0.55 })
+  -- Time-to-next-block progress bar (always visible, even pre-first-block)
+  if state then
+    local interval = 60 * (0.85 + 0.30 * ((state.facility_seed or 0) % 100) / 100)
+    local frac = math.min(1, (state._blockAccum or 0) / interval)
+    local pbY = y + h - 18
+    local pbW = w - 12
+    love.graphics.setColor(0.10, 0.10, 0.10, 1)
+    love.graphics.rectangle("fill", x + 6, pbY, pbW, 6, 2, 2)
+    love.graphics.setColor(1, 0.95, 0.55, 0.95)
+    love.graphics.rectangle("fill", x + 6, pbY, pbW * frac, 6, 2, 2)
+    love.graphics.setFont(fonts.tiny)
+    love.graphics.setColor(1, 0.95, 0.55, 0.85)
+    love.graphics.printf(string.format("next block in %ds", math.max(0, math.floor(interval - (state._blockAccum or 0)))),
+      x + 6, pbY - 12, pbW, "right")
+  end
   -- Show last 60 seconds; each block as a vertical pip
   local n = #hist.block_times
   if n == 0 then
@@ -263,23 +312,26 @@ function M.draw(hist, state, fonts, t, x, y, w, h)
   local pad = 6
   local panelH = (h - pad * 4) / 5
 
+  -- HASH RATE — amber so it doesn't collide with BLOCK TIMELINE's gold.
   drawChartFrame(x, y + 0 * (panelH + pad), w, panelH, "HASH RATE", fonts,
-    { 0.85, 0.95, 0.55 })
+    { 1.00, 0.75, 0.30 })
   drawLineChart(hist, "hashrate", x, y + 0 * (panelH + pad), w, panelH,
-    { 1.00, 0.95, 0.65 }, function(v) return fmt.hashRate(v) end)
+    { 1.00, 0.85, 0.40 }, function(v) return fmt.hashRate(v) end)
 
+  -- Z/SEC stays the canonical green (matches the HUD balance + Z coin).
   drawChartFrame(x, y + 1 * (panelH + pad), w, panelH, "ZEPTONS / SEC", fonts,
     { 0.45, 1.00, 0.65 })
   drawLineChart(hist, "zps", x, y + 1 * (panelH + pad), w, panelH,
     { 0.55, 1.00, 0.75 }, function(v) return fmt.rate(v) end)
 
+  -- Energy supply pushed to teal so it isn't mistaken for "more zeptons".
   drawEnergyChart(hist,
     x, y + 2 * (panelH + pad), w, panelH, fonts,
-    { 0.45, 1.00, 0.55 }, { 1.00, 0.55, 0.30 })
+    { 0.30, 0.90, 0.85 }, { 1.00, 0.55, 0.30 })
 
   drawTierBreakdown(state, x, y + 3 * (panelH + pad), w, panelH, fonts)
 
-  drawBlockTimeline(hist, x, y + 4 * (panelH + pad), w, panelH, fonts, t)
+  drawBlockTimeline(hist, x, y + 4 * (panelH + pad), w, panelH, fonts, t, state)
 end
 
 return M

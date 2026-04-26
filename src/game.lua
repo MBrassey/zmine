@@ -912,35 +912,43 @@ end
 -- Buy handlers
 -- ============================================================
 
+-- Tier-up celebration scales by `def.tier`. T1 ASIC is a soft cymbal;
+-- T10 Omega Engine is a wall-bending fanfare with shake + extra zoom.
 local function celebrateFirstOfTier(state, def, kind)
+  local T = def.tier or 1
   Audio.tier()
-  Audio.duckHum(0.50, 350)
+  Audio.duckHum(0.45 + T * 0.03, 300 + T * 25)
   local hex = string.format("#%02x%02x%02x",
     math.floor(def.color[1]*255), math.floor(def.color[2]*255), math.floor(def.color[3]*255))
-  Fx.flash(hex, 280, 0.70)
-  Fx.shatter(0.30, 550)
-  Fx.zoom(0.04, 360)
-  Fx.glow(hex, 0.7, 800)
-  Fx.ripple(hex, 0.5, 0.5, 1300)
+  Fx.flash(hex,   260 + T * 12, math.min(0.95, 0.55 + T * 0.04))
+  Fx.shatter(math.min(0.55, 0.20 + T * 0.04), 480 + T * 24)
+  Fx.zoom(0.025 + T * 0.005, 320 + T * 22)
+  Fx.glow(hex,  math.min(0.95, 0.55 + T * 0.04), 700 + T * 40)
+  Fx.ripple(hex, 0.5, 0.5, 1100 + T * 50)
+  if T >= 6 then Fx.shake(0.18 + math.min(0.30, T * 0.025), 200 + T * 10) end
+  if T >= 8 then Fx.chroma(0.35, 220) end
+
   local cx, cy = Facility.coreCenter()
   state.floats:emit({
     x = cx - 120, y = cy - 100,
-    text = string.format("✦ TIER %d UNLOCKED", def.tier or 0),
+    text = string.format("✦ TIER %d UNLOCKED", T),
     color = def.color,
-    size = 1.7, weight = "bold", life = 2.4, vy = -110,
+    size = 1.5 + T * 0.05, weight = "bold", life = 2.4, vy = -110,
   })
   state.floats:emit({
     x = cx - 90, y = cy - 70,
     text = def.name,
     color = def.color,
-    size = 1.2, weight = "bold", life = 2.4, vy = -90,
+    size = 1.0 + T * 0.04, weight = "bold", life = 2.4, vy = -90,
   })
   state.particles:burst({
-    x = cx, y = cy, n = 90,
-    color = def.color, minSpeed = 200, maxSpeed = 720,
-    life = 1.6, size = 5, kind = "trail",
+    x = cx, y = cy, n = 60 + T * 14,
+    color = def.color,
+    minSpeed = 180 + T * 12, maxSpeed = 600 + T * 60,
+    life = 1.4 + T * 0.06, size = 4 + math.min(4, T * 0.4),
+    kind = "trail",
   })
-  M.message(state, string.format("✦ TIER %d UNLOCKED — %s", def.tier or 0, def.name), def.color)
+  M.message(state, string.format("✦ TIER %d UNLOCKED — %s", T, def.name), def.color)
 end
 
 function M.buyMiner(state, def, qty, silent)
@@ -1120,8 +1128,17 @@ function M.findBlock(state)
 
   -- Broadcast to room mesh
   Network.notify(state.network, "block", { reward = total, height = state.block_height })
-  -- Advance the slug-wide global block counter (may trigger a surge)
-  Network.maybeAdvanceGlobalBlocks(state.network, state.block_height)
+  -- Advance the slug-wide global block counter (may trigger a surge).
+  -- Weight by the player's highest-tier owned miner so endgame slugs
+  -- accumulate global blocks faster and surge cadence keeps pace.
+  local maxTier = 1
+  for _, def in ipairs(minersDb.list) do
+    if (state.miners[def.key] or 0) > 0 and def.tier > maxTier then
+      maxTier = def.tier
+    end
+  end
+  local tierWeight = math.max(1, math.floor(1 + maxTier / 3))
+  Network.maybeAdvanceGlobalBlocks(state.network, state.block_height, tierWeight)
   -- Notify the live console
   if state.console then Console.notifyBlock(state.console, love.timer.getTime()) end
 
@@ -1144,14 +1161,14 @@ function M.findBlock(state)
     life = 1.4, size = 5,
     kind = "trail",
   })
-  -- Block has its own signature (tierUp chord, gold zoom, full-screen pulse)
+  -- Block: distinct gold signature, no Fx.pulse (glow + ripple already
+  -- imply rhythm and pulse stacked on top muddied the moment).
   Audio.block()
   Audio.duckHum(0.55, 350)
   Fx.flash("#ffe066", 240, 0.65)
   Fx.glow("#ffe066", 0.7, 800)
   Fx.ripple("#ffe066", 0.42, 0.5, 1300)
   Fx.zoom(0.05, 380)
-  Fx.pulse("#ffe066", 1100)
 
   if halvings > (state._lastHalvingNotice or -1) then
     state._lastHalvingNotice = halvings
@@ -1159,10 +1176,20 @@ function M.findBlock(state)
       M.message(state, string.format("HALVING #%d — base reward → %d Z", halvings, math.floor(baseReward)),
         { 0.85, 0.65, 1 })
       Audio.halving()
-      Audio.duckHum(0.65, 600)
+      Audio.duckHum(0.70, 700)
+      Fx.flash("#cf8aff", 320, 0.90)
       Fx.invert(180)
-      Fx.shatter(0.4, 700)
-      Fx.chroma(0.45, 280)
+      Fx.shatter(0.45, 750)
+      Fx.shake(0.30, 240)
+      -- Loud float so the rarest event in the loop has the biggest typographic footprint
+      local cx, cy = Facility.coreCenter()
+      state.floats:emit({
+        x = cx - 140, y = cy - 130,
+        text = string.format("HALVING #%d", halvings),
+        color = { 0.85, 0.65, 1 },
+        size = 1.9, weight = "bold",
+        life = 3.0, vy = -100,
+      })
       Network.notify(state.network, "halving", { count = halvings, base = math.floor(baseReward) })
     end
   end
@@ -1306,15 +1333,16 @@ function M.draw(state, fonts, mx, my)
 
   Facility.draw(state, fonts, t, Shaders, getMood(state))
 
-  -- Live mining console — real charts overlaid on the right half of
+  -- Live mining console — real charts overlaid on the right edge of
   -- the facility area so the operator feels like they are running an
-  -- actual mining floor.
+  -- actual mining floor. Width clamped tight so the console doesn't
+  -- swallow the energy-ring glyphs or the core's outer runes.
   if state.console then
     local area = Facility.area()
-    local cw = 380
-    local cx = area.x + area.w - cw - 18
-    local cy = area.y + 90
-    local ch = area.h - 180
+    local cw = 320
+    local cx = area.x + area.w - cw - 12
+    local cy = area.y + 200
+    local ch = area.h - 290
     Console.draw(state.console, state, fonts, t, cx, cy, cw, ch)
   end
 

@@ -285,6 +285,56 @@ for _, u in ipairs(M.list) do
   M.byKey[u.key] = u
 end
 
+-- Group every upgrade into a category for the RESEARCH tab subheads.
+-- Categorization is keyed off the upgrade's `key` prefix so adding a new
+-- upgrade only needs the right naming convention.
+local function categorize(u)
+  local k = u.key
+  if k:find("^click_streak") then return "STREAK" end
+  if k:find("^click_") then return "CLICK" end
+  if k:find("^mult_") then return "MINING POWER" end
+  if k:find("^cooling_") then return "MINING POWER" end
+  if k:find("^eff_") then return "EFFICIENCY" end
+  if k == "boost_quantum" or k == "boost_neural" or k == "boost_hyper"
+     or k == "boost_singularity" or k == "boost_eonchamber"
+     or k == "boost_cosmos" or k == "boost_eldritch" or k == "boost_omega"
+     or k:find("^boost2_") then return "MINER TUNING" end
+  if k == "ai_prefetch" or k == "exotic_lock" then return "MINER TUNING" end
+  if k:find("^energy_") or k == "renewables"
+     or k == "fission_breeder" or k == "fusion_optimum"
+     or k == "exotic_grid" then return "ENERGY TUNING" end
+  if k:find("^crit_") then return "CRITS" end
+  if k:find("^network") then return "SYNERGY" end
+  if k:find("^autobuy") then return "AUTOMATION" end
+  if k:find("^compress") then return "TIME" end
+  if k:find("^surge_") or k:find("^pool_") then return "MESH" end
+  if k:find("^block_yield_") then return "BLOCK YIELD" end
+  if k:find("^buffer") then return "POWER BUFFER" end
+  if k:find("^global_") or k == "ascendant" or k == "transcend" then return "ENDGAME" end
+  return "MISC"
+end
+
+-- Order that categories render in the RESEARCH tab.
+local CATEGORY_ORDER = {
+  "CLICK", "STREAK", "MINING POWER", "EFFICIENCY", "MINER TUNING",
+  "ENERGY TUNING", "POWER BUFFER", "BLOCK YIELD", "CRITS", "SYNERGY",
+  "MESH", "AUTOMATION", "TIME", "ENDGAME", "MISC",
+}
+
+-- Sorted (category, idx) view: an array of upgrades grouped by category.
+M.categories = {}
+local byCat = {}
+for i, u in ipairs(M.list) do
+  local c = categorize(u)
+  byCat[c] = byCat[c] or {}
+  table.insert(byCat[c], u)
+end
+for _, c in ipairs(CATEGORY_ORDER) do
+  if byCat[c] then
+    table.insert(M.categories, { name = c, items = byCat[c] })
+  end
+end
+
 function M.canPurchase(def, owned)
   if owned[def.key] then return false, "owned" end
   if def.requires then

@@ -726,31 +726,13 @@ function M.update(state, dt, playerStats)
       totalRate = totalRate + effRate
       totalHash = totalHash + (p.hashrate or 0)
     end
-    -- If we're connected but the room is empty, top up with a few "DEMO"
-    -- peers so the panel doesn't feel barren — but tag them clearly so
-    -- the user sees they're placeholder, not real, and exclude their
-    -- numbers from the global hash-rate aggregation.
-    if #state._snapshots == 0 then
-      for i = 1, math.min(6, #state.sim_players) do
-        local p = state.sim_players[i]
-        local snap = simSnapshot(p, state._t, playerStats)
-        snap.placeholder = true
-        snap.name = "DEMO  ·  " .. snap.name
-        table.insert(state._snapshots, snap)
-        maybeSimAnnounceBlock(state, p, snap)
-        maybeSimAnnounceBuild(state, p, snap)
-      end
-    end
+    -- Empty room is empty. We do NOT inject NPCs / demo peers. A solo
+    -- operator should see only their own plot until real peers join.
   else
-    -- Sim only
-    for i, p in ipairs(state.sim_players) do
-      local snap = simSnapshot(p, state._t, playerStats)
-      table.insert(state._snapshots, snap)
-      totalRate = totalRate + snap.z_per_sec
-      totalHash = totalHash + snap.hashrate
-      maybeSimAnnounceBlock(state, p, snap)
-      maybeSimAnnounceBuild(state, p, snap)
-    end
+    -- Solo / pre-connect mode: no NPCs. The plot belongs to the player
+    -- alone; the network panel shows an empty state with a hint to
+    -- invite friends. This matches the user's expectation that a solo
+    -- player sees nobody else.
   end
   state.totalRate     = totalRate
   state.totalHashRate = totalHash + (playerStats.hashrate or 0)
@@ -858,14 +840,16 @@ function M.update(state, dt, playerStats)
     end
     if it.kind == "incoming_boost" and not it.responded and state._t >= it.respond_at then
       it.responded = true
-      -- Send thanks to the sender across the wire — with a defensive cap
-      -- so a malicious peer claiming `paid: 1e18` can't mint zeptons on
-      -- the recipient's leaderboard. Anchor to OUR rate (the trustable side).
+      -- Cap is anchored to YOUR rate (the trustable side) but allowed
+      -- to scale with paid amount when the player is genuinely high-tier.
+      -- This keeps anti-cheat bite while letting late-game flexing land.
       local rateBudget = (playerStats.z_per_sec or 0) * 60
       local maxBonus = math.max(50, rateBudget)
+      local paidScaled = (it.paid or 0) * 5
+      maxBonus = math.max(maxBonus, paidScaled)
       local bonus = (it.paid or 0) * (1.2 + love.math.random() * 0.6)
       if bonus > maxBonus then bonus = maxBonus end
-      if bonus > 1e9 then bonus = 1e9 end
+      if bonus > 1e12 then bonus = 1e12 end
       Net.send("thanks", { amount = bonus }, it.from_id)
     end
   end
@@ -972,16 +956,20 @@ end
 -- Authoritative slug-state mutator. Players cooperate to push the
 -- "all_time_blocks" counter and trigger surge windows when it crosses
 -- 100-block thresholds. Last writer wins; conflicts heal next tick.
-function M.maybeAdvanceGlobalBlocks(state, blockHeight)
-  if state.mode ~= "real" then return end
+function M.maybeAdvanceGlobalBlocks(stateNet, blockHeight, tierWeight)
+  if stateNet.mode ~= "real" then return end
   local sst = Net.slugState
   if not sst then return end
   local known = tonumber((sst.state or {}).all_time_blocks or 0) or 0
+  -- Endgame players' blocks are worth more on the global counter so the
+  -- surge cadence keeps pace as the slug's collective tier rises.
+  local weight = math.max(1, math.floor(tierWeight or 1))
   if blockHeight > known then
-    local next_total = known + 1  -- conservative — only claim one block per emit
+    local next_total = known + weight
     local patch = { all_time_blocks = next_total }
-    -- Surge trigger every 100 global blocks
-    if next_total > 0 and (next_total % 100 == 0) then
+    -- Surge trigger when crossing any 100-block threshold (handles weighted skips)
+    local crossedThreshold = math.floor(next_total / 100) > math.floor(known / 100)
+    if next_total > 0 and crossedThreshold then
       local startedAt = (Net.active and Net.active.at) or os.time() * 1000
       patch.surge_until = startedAt + 120000
       patch.surge_started_at = startedAt

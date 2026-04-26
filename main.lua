@@ -161,7 +161,11 @@ function love.draw()
     love.graphics.setShader(crtShader)
     crtShader:send("u_size", { canvas:getWidth(), canvas:getHeight() })
     crtShader:send("u_time", love.timer.getTime())
-    crtShader:send("u_strength", 0.18)
+    -- Calmer baseline; ramp up during a global surge so the screen
+    -- visibly stresses when the +50% window is open.
+    local surgeOn = state and state.network and state.network._surgeUntil
+                    and state.network._surgeUntil > love.timer.getTime()
+    crtShader:send("u_strength", surgeOn and 0.32 or 0.10)
   end
   love.graphics.draw(canvas, dx, dy, 0, scale, scale)
   if crtShader then love.graphics.setShader() end

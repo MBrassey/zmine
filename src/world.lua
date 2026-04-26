@@ -27,8 +27,16 @@ local PAD_COOLDOWN = 0.65
 local PAD_HOLD_X10  = 1.5
 local PAD_HOLD_MAX  = 3.0
 
--- Camera target (in screen space relative to plot origin)
-local CAMERA = { sx = DESIGN_W / 2, sy = 480 }
+-- Camera origin (where world-coord (0,0) lands in screen space).
+-- Derived from plot + tile dimensions so the diamond's center
+-- projects to roughly canvas-center. With PLOT_W=24, PLOT_H=18,
+-- TILE_W=96, TILE_H=48 the plot occupies (PLOT_W+PLOT_H)*TILE_H/2 = 504
+-- pixels vertically and (PLOT_W+PLOT_H)*TILE_W/2 = 1008 wide
+-- (rotated diamond bounds). We center the diamond on the canvas.
+local CAMERA = {
+  sx = DESIGN_W / 2 - (PLOT_W - PLOT_H) * Iso.TILE_W * 0.25,
+  sy = 96 + (DESIGN_H - 96 - 64 - (PLOT_W + PLOT_H) * Iso.TILE_H * 0.5) / 2,
+}
 
 -- ============================================================
 -- Layout
@@ -255,8 +263,10 @@ local function updatePeers(world, state, dt)
       -- Standing still; subtle bob only
       pc.char.vx = 0; pc.char.vy = 0
     else
+      -- Per-peer phase break-up so they don't crowd in a 6-tile horizontal band
+      local phY = (pc.path_t * 0.31 + (pc.char.label and #pc.char.label or 1) * 0.27)
       local cx = 2 + (math.sin(pc.path_t * 0.4) * 0.5 + 0.5) * (PLOT_W - 4)
-      local cy = 6 + (math.sin(pc.path_t * 0.31 + 1.2) * 0.5 + 0.5) * (PLOT_H - 12)
+      local cy = 5 + (math.sin(phY + 1.2) * 0.5 + 0.5) * (PLOT_H - 10)
       local dx = cx - pc.char.wx
       local dy = cy - pc.char.wy
       local d = math.sqrt(dx * dx + dy * dy)
@@ -475,13 +485,16 @@ local function drawPad(pad, state, t)
   Assets.drawBuyPad(sx, sy, color, t, { phase = pad.phase })
 
   -- Floating tier + cost label (full name, not short code, so a Tab-first
-  -- player can navigate without prior shop knowledge).
+  -- player can navigate without prior shop knowledge). 26-char truncation
+  -- so "Antimatter Trap Reactor" (23) lands clean.
   local font = love.graphics.getFont()
   local fullName = pad.def.name or pad.def.short or "?"
-  if #fullName > 22 then fullName = fullName:sub(1, 21) .. "…" end
+  if #fullName > 26 then fullName = fullName:sub(1, 25) .. "…" end
   local nameLine = string.format("%s [T%d]", fullName, pad.def.tier)
   local nameW = font:getWidth(nameLine)
-  local labelY = sy - 38
+  -- Stagger labels vertically: even-tier pads sit higher so adjacent name
+  -- plates don't horizontally overlap when the row is densely packed.
+  local labelY = sy - 38 - ((pad.def.tier % 2 == 0) and 18 or 0)
 
   love.graphics.setColor(0, 0, 0, 0.65)
   love.graphics.rectangle("fill", sx - nameW/2 - 6, labelY - 2, nameW + 12, 18, 3, 3)
@@ -691,11 +704,18 @@ function M.draw(world, state, fonts, t)
     local count = (pad.kind == "miner" and state.miners or state.energy)[pad.key] or 0
     if count > 0 then
       local visible = math.min(6, count)
+      -- Center the rack on the pad and shrink column step inversely with
+      -- tier count so 11-energy/10-miner racks don't bump into neighbors.
+      local listLen = (pad.kind == "miner") and #minersDb.list or #energyDb.list
+      local slotW = (PLOT_W - 4) / listLen
+      local colStep = math.min(0.85, slotW * 0.35)
+      local rowStep = math.min(0.85, slotW * 0.35)
+      local offset = (visible - 1) * 0.5
       for i = 1, visible do
         local col = (i - 1) % 3
         local row = math.floor((i - 1) / 3)
-        local wx = pad.anchor_wx + (col - 1) * 0.85
-        local wy = pad.anchor_wy + (row * 0.85)
+        local wx = pad.anchor_wx + (col - 1) * colStep
+        local wy = pad.anchor_wy + (row * rowStep)
         local fn = (pad.kind == "miner") and Assets.miners[pad.key] or Assets.energy[pad.key]
         if fn then
           table.insert(entities, {
@@ -703,16 +723,21 @@ function M.draw(world, state, fonts, t)
             wx = wx, wy = wy,
             depth = Iso.depth(wx, wy, 0),
             phase = i * 0.15,
+            count = count,  -- pass for visuals scaling
           })
         end
       end
     end
   end
 
-  -- Player + peers
-  table.insert(entities, { kind = "char", char = world.char, depth = Iso.depth(world.char.wx, world.char.wy, 0) + 1 })
+  -- Player + peers — drop the +1 depth bias. We instead nudge the
+  -- character's Y by 0.05 so a character standing on the same row as
+  -- a rack sorts behind/in-front naturally based on actual position.
+  table.insert(entities, { kind = "char", char = world.char,
+    depth = Iso.depth(world.char.wx, world.char.wy + 0.05, 0) })
   for _, pc in pairs(world.peers) do
-    table.insert(entities, { kind = "peer", char = pc.char, depth = Iso.depth(pc.char.wx, pc.char.wy, 0) + 1 })
+    table.insert(entities, { kind = "peer", char = pc.char,
+      depth = Iso.depth(pc.char.wx, pc.char.wy + 0.05, 0) })
   end
 
   -- Self-planted flags
@@ -743,11 +768,25 @@ function M.draw(world, state, fonts, t)
       Assets.drawCanister(sx, sy, fill, e.c.def.color, t)
     elseif e.kind == "built" then
       local sx, sy = Iso.toScreen(e.wx, e.wy, 0)
+      -- Platform visibly grows as you build more of this tier.
+      local growth = 1 + math.min(1.0, math.log10(math.max(1, e.count or 1)) * 0.18)
       love.graphics.setColor(e.color[1] * 0.18, e.color[2] * 0.18, e.color[3] * 0.18, 0.85)
-      love.graphics.ellipse("fill", sx, sy, 22, 7)
+      love.graphics.ellipse("fill", sx, sy, 22 * growth, 7 * growth)
       love.graphics.setColor(e.color[1] * 0.65, e.color[2] * 0.65, e.color[3] * 0.65, 0.80)
-      love.graphics.ellipse("line", sx, sy, 22, 7)
+      love.graphics.ellipse("line", sx, sy, 22 * growth, 7 * growth)
       e.fn(sx, sy - 1, e.color, t + e.phase)
+      -- Crown the rack with intensity sparks the more units you've built.
+      if (e.count or 0) > 6 then
+        local sparkN = math.min(8, math.floor(math.log10(e.count) * 4))
+        for k = 0, sparkN do
+          local a = (t * 0.7 + k / (sparkN + 1)) * math.pi * 2
+          local rr = 24 * growth + math.sin(t * 2 + k) * 2
+          love.graphics.setColor(e.color[1], e.color[2], e.color[3], 0.85)
+          love.graphics.circle("fill",
+            sx + math.cos(a) * rr,
+            sy - 30 + math.sin(a) * rr * 0.45, 1.6)
+        end
+      end
     elseif e.kind == "char" then
       Char.draw(e.char, t)
     elseif e.kind == "peer" then

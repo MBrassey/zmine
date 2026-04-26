@@ -379,22 +379,21 @@ function M.draw(c, t)
   love.graphics.setColor(c.accentColor[1] * 0.6, c.accentColor[2] * 0.6, c.accentColor[3] * 0.6, 0.85)
   love.graphics.rectangle("fill", headX - 11, headY, 22, 1)
 
-  -- Wave gesture: if _waveTimer > 0, raise the right arm and add an "👋" cue
+  -- Wave gesture: raise the right arm and float a "hi" bubble directly
+  -- above the head so it doesn't bleed into the next peer's lane.
   if c._waveTimer and c._waveTimer > 0 then
     local wt = c._waveTimer
-    -- Sweep arm up; oscillate slightly
     local raise = math.sin((1.4 - wt) * 8) * 6
     love.graphics.setColor(c.skinColor[1], c.skinColor[2], c.skinColor[3], 1)
     love.graphics.rectangle("fill", bodyX + torsoW/2 + 2, bodyY - 60 + raise, 4, 14, 1, 1)
     love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], math.min(1, wt))
     love.graphics.circle("fill", bodyX + torsoW/2 + 4, bodyY - 60 + raise - 3, 3 + math.sin(wt * 14) * 1.2)
-    -- Speech-bubble-ish accent
     love.graphics.setColor(0, 0, 0, math.min(0.7, wt))
-    love.graphics.rectangle("fill", bodyX + torsoW/2 + 8, bodyY - 76, 30, 14, 4, 4)
+    love.graphics.rectangle("fill", bodyX - 15, headY - 22, 30, 14, 4, 4)
     love.graphics.setColor(c.accentColor[1], c.accentColor[2], c.accentColor[3], math.min(1, wt))
-    love.graphics.rectangle("line", bodyX + torsoW/2 + 8, bodyY - 76, 30, 14, 4, 4)
+    love.graphics.rectangle("line", bodyX - 15, headY - 22, 30, 14, 4, 4)
     love.graphics.setColor(1, 1, 1, math.min(1, wt))
-    love.graphics.print("hi", bodyX + torsoW/2 + 14, bodyY - 75)
+    love.graphics.print("hi", bodyX - 7, headY - 21)
   end
 
   -- Halo / crown above head
