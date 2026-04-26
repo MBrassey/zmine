@@ -643,24 +643,37 @@ function M.update(world, state, dt, callbacks)
     world.pad_cooldowns[i] = math.max(0, cd - dt)
   end
 
-  -- Pad step-on auto-buy. Track entering pad to play charge sound +
-  -- accumulate hold time so longer holds buy ×10 / max.
+  -- Pad step-on auto-buy. A pad only "responds" if its current unit
+  -- cost is affordable in BTC. Walking across the row of dim pads
+  -- (priced above your balance) used to fire the charge sound + a
+  -- silent buy attempt that failed — that was being read as "those
+  -- pads aren't mine, why are they reacting?". Now unaffordable pads
+  -- are inert: no sound, no callback, nothing. Only the bright/lit
+  -- pads — the ones you can actually buy from — react when you step
+  -- on them.
   world._inPad      = world._inPad or {}
   world._padHold    = world._padHold or {}
   for i, pad in ipairs(world.pads) do
     local on = inPad(world.char, pad)
-    if on and not world._inPad[i] then
+    local cost
+    if pad.kind == "miner" then
+      cost = minersDb.unitCost(pad.def, state.miners[pad.key] or 0)
+    else
+      cost = energyDb.unitCost(pad.def, state.energy[pad.key] or 0)
+    end
+    local affordable = (state.z or 0) >= cost
+    if on and affordable and not world._inPad[i] then
       world._inPad[i]   = true
       world._padHold[i] = 0
       Audio.padCharge()
-    elseif not on and world._inPad[i] then
+    elseif (not on or not affordable) and world._inPad[i] then
       world._inPad[i]   = nil
       world._padHold[i] = 0
     end
-    if on then
+    if on and affordable then
       world._padHold[i] = (world._padHold[i] or 0) + dt
     end
-    if (world.pad_cooldowns[i] or 0) <= 0 and on then
+    if (world.pad_cooldowns[i] or 0) <= 0 and on and affordable then
       world.pad_cooldowns[i] = PAD_COOLDOWN
       local qty = 1
       if (world._padHold[i] or 0) > PAD_HOLD_MAX then qty = "max"

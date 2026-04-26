@@ -14,8 +14,12 @@ M.def = {
   desc            = "A featureless obsidian obelisk with a single red eye. " ..
                     "Absorbs zeptons from the underlying field. Slow, " ..
                     "expensive, irreplaceable.",
-  cost            = 250000,    -- in BTC (state.z)
-  growth          = 1.55,
+  cost            = 50000000,  -- 50M BTC for the first monolith.
+                               -- Zeptons are the apex resource — the
+                               -- ladder to the first one runs through
+                               -- antimatter / zero-point energy; you
+                               -- earn it, you don't stumble into it.
+  growth          = 1.65,
   produce_zps     = 0.04,      -- zeptons per second per monolith
   color           = { 1.00, 0.18, 0.20 },  -- the red eye
   body_color      = { 0.06, 0.04, 0.06 },  -- obsidian body
