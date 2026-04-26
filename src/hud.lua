@@ -111,20 +111,25 @@ function M.draw(state, fonts, t)
   love.graphics.setColor(0.95, 0.85, 0.45, 1)
   love.graphics.print("ENERGY  GRID", ex, 14)
 
-  -- Demand / supply — show RAW demand on the left, not the supply-capped
-  -- "energy_used", so buying more miners visibly grows the demand number
-  -- past the supply (the bar still pegs at 100%, but the readout
-  -- communicates how far underwater the grid is).
-  love.graphics.setFont(fonts.medium)
-  love.graphics.setColor(0.98, 0.95, 0.78, 1)
+  -- Side-by-side SUPPLY / DEMAND so the readout is unambiguous —
+  -- "8.4k / 4.6k" was being read as "using 8.4k of 4.6k available"
+  -- which is logically impossible. Now each number is labeled.
   local demand = state.energy_demand_raw or state.energy_used or 0
   local supply = state.energy_supply or 0
-  local energyStr = string.format("%s / %s", fmt.energy(demand), fmt.energy(supply))
-  love.graphics.print(energyStr, ex, 38)
+  love.graphics.setFont(fonts.tiny)
+  love.graphics.setColor(0.55, 0.85, 0.65, 0.95)
+  love.graphics.print("SUPPLY", ex, 30)
+  local demandColor = (demand > supply) and { 1, 0.55, 0.30, 0.95 } or { 0.65, 0.85, 0.55, 0.95 }
+  love.graphics.setColor(demandColor)
+  love.graphics.print("DEMAND", ex + 190, 30)
+  love.graphics.setFont(fonts.medium)
+  love.graphics.setColor(0.55, 1.00, 0.75, 1)
+  love.graphics.print(fmt.energy(supply), ex, 44)
+  love.graphics.setColor(demandColor[1], demandColor[2], demandColor[3], 1)
+  love.graphics.print(fmt.energy(demand), ex + 190, 44)
 
-  -- Bar — pct of demand vs supply, capped at 1.0 visually but tinted by
-  -- the actual ratio so deep-throttle reads obviously red.
-  local barW, barH = 380, 18
+  -- Bar — pct of demand vs supply, capped at 1.0 visually.
+  local barW, barH = 380, 14
   local pct = (supply > 0) and (demand / supply) or 0
   local barColor = { 0.30, 1.00, 0.55 }
   if pct > 1.0 then
@@ -132,7 +137,7 @@ function M.draw(state, fonts, t)
   elseif pct > 0.85 then
     barColor = { 1.00, 0.75, 0.30 }
   end
-  drawProgressBar(ex, 70, barW, barH, math.min(1, pct), barColor, nil)
+  drawProgressBar(ex, 74, barW, barH, math.min(1, pct), barColor, nil)
 
   -- Brownout overlay: when demand exceeds supply we show the throttle %
   if state.energy_demand_raw and state.energy_supply and
@@ -142,7 +147,7 @@ function M.draw(state, fonts, t)
     love.graphics.setColor(1, 0.55, 0.30, 0.95)
     love.graphics.printf(
       string.format("THROTTLING %d%%", math.floor(throttle * 100)),
-      ex, 70 + (barH - 12) / 2, barW, "center")
+      ex, 74 + (barH - 12) / 2, barW, "center")
   end
 
   -- Section: HASH and BLOCK chips, in their own column at right of energy.
