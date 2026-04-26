@@ -642,8 +642,13 @@ function M.update(state, dt, fonts)
     end
   end
 
-  -- Recompute production every frame (cheap)
-  recompute(state, love.timer.getTime())
+  -- Recompute production every frame (cheap). Wrapped so a latent
+  -- bug in production math (e.g. div-by-zero on a malformed energy
+  -- entry) can't take down the whole update loop.
+  local rcok, rcerr = pcall(recompute, state, love.timer.getTime())
+  if not rcok then
+    io.stderr:write("[zmine] recompute: " .. tostring(rcerr) .. "\n")
+  end
 
   -- Compute active-miracle modifier bag once per tick.
   state._mir = state._mir or {}
@@ -1519,17 +1524,17 @@ function M.draw(state, fonts, mx, my)
   if state.scene == "intro" then
     love.graphics.clear(0.01, 0.04, 0.02, 1)
     protect(function() Intro.draw(state.intro, t) end, "Intro.draw")
-    state.particles:draw()
-    state.floats:draw(fonts)
+    protect(function() state.particles:draw() end, "particles.draw")
+    protect(function() state.floats:draw(fonts) end, "floats.draw")
     return
   end
 
   if state.scene == "world" and state.world then
     protect(function() World.draw(state.world, state, fonts, t) end, "World.draw")
-    state.particles:draw()
-    state.floats:draw(fonts)
+    protect(function() state.particles:draw() end, "particles.draw")
+    protect(function() state.floats:draw(fonts) end, "floats.draw")
     protect(function() Hud.draw(state, fonts, t) end, "Hud.draw")
-    drawBottomBar(state, fonts)
+    protect(function() drawBottomBar(state, fonts) end, "drawBottomBar")
     if state.paused then drawPauseOverlay(fonts, t) end
     return
   end
@@ -1556,13 +1561,13 @@ function M.draw(state, fonts, mx, my)
   -- Particles overlay clipped to facility area (canvas-relative, design coords)
   local area = Facility.area()
   love.graphics.setScissor(area.x, area.y, area.w, area.h)
-  state.particles:draw()
-  state.floats:draw(fonts)
+  protect(function() state.particles:draw() end, "particles.draw")
+  protect(function() state.floats:draw(fonts) end, "floats.draw")
   love.graphics.setScissor()
 
   protect(function() Shop.draw(state.shop, state, fonts, t, mx, my) end, "Shop.draw")
 
-  drawBottomBar(state, fonts)
+  protect(function() drawBottomBar(state, fonts) end, "drawBottomBar")
 
   if state.paused then
     drawPauseOverlay(fonts, t)

@@ -238,8 +238,14 @@ function love.quit()
 end
 
 function love.errorhandler(msg)
-  -- Minimal error reporter; let LÖVE default fall through if needed
+  -- Persist the crash to disk so post-mortem isn't gated on having a
+  -- terminal open. File lands in love.filesystem.getSaveDirectory()
+  -- which on linux is ~/.local/share/love/zmine/crashlog.txt.
+  local trace = debug.traceback(tostring(msg), 2)
+  local stamp = os.date("%Y-%m-%d %H:%M:%S")
+  local body = string.format("[%s]\n%s\n\n", stamp, trace)
   print("[ZMINE] error: " .. tostring(msg))
-  print(debug.traceback())
+  print(trace)
+  pcall(function() love.filesystem.append("crashlog.txt", body) end)
   return nil
 end
