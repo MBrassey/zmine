@@ -150,62 +150,100 @@ function M.drawCentered(cx, cy, size, t, value, font, color, opts)
   M.drawWithLabel(cx - total / 2, cy, size, t, value, f, color, opts)
 end
 
--- BTC coin variant — orange ₿ glyph.
+-- BTC coin — official Bitcoin orange disk + white ₿ glyph constructed
+-- from filled primitives so the symbol is solid and reads cleanly at
+-- any size. Composition matches the real Bitcoin logo:
+--   * orange circle (#F7931A)
+--   * white vertical stem
+--   * two white D-loops on the right with orange ring-cutouts
+--   * two short vertical serifs above the top and below the bottom
 function M.drawBTC(sx, sy, size, t, opts)
   opts = opts or {}
   size = size or 14
-  local cR, cG, cB = 1.00, 0.65, 0.20
   local pulse = 0.85 + math.sin(t * 2.4) * 0.15
+  -- Bitcoin orange #F7931A
+  local cR, cG, cB = 0.969, 0.576, 0.102
 
-  -- Outer glow
+  -- Outer halo
   for r = 5, 0, -1 do
     love.graphics.setColor(cR, cG, cB, (1 - r/6) * 0.22 * pulse)
     love.graphics.circle("fill", sx, sy, size * (1.05 + r * 0.10))
   end
-  -- Coin body
-  for r = 0, 4 do
-    local k = r / 4
-    love.graphics.setColor(cR * (0.50 + k * 0.40), cG * (0.40 + k * 0.40), cB * (0.30 + k * 0.40), 1)
-    love.graphics.circle("fill", sx, sy, size * (1 - r * 0.15))
-  end
-  -- Outer rim
-  love.graphics.setColor(cR, cG * 0.85, cB * 0.55, 1)
-  love.graphics.setLineWidth(math.max(1.2, size * 0.10))
+
+  -- Coin body — slightly darker outer disc, brighter inner highlight
+  love.graphics.setColor(cR * 0.92, cG * 0.92, cB * 0.92, 1)
+  love.graphics.circle("fill", sx, sy, size)
+  local hiR, hiG, hiB = math.min(1, cR + 0.05), math.min(1, cG + 0.06), math.min(1, cB + 0.06)
+  love.graphics.setColor(hiR, hiG, hiB, 1)
+  love.graphics.circle("fill", sx, sy, size * 0.94)
+
+  -- Outer rim (darker)
+  love.graphics.setColor(cR * 0.55, cG * 0.40, cB * 0.25, 1)
+  love.graphics.setLineWidth(math.max(1.2, size * 0.06))
   love.graphics.circle("line", sx, sy, size)
   love.graphics.setLineWidth(1)
 
-  -- ₿ glyph: B with two horizontal bars sticking out top and bottom
-  local s = size * 0.55
-  local bx = sx - s * 0.5
-  local by = sy
-  love.graphics.setLineWidth(math.max(1.5, size * 0.16))
-  -- Drop shadow
-  love.graphics.setColor(0, 0, 0, 0.55)
-  love.graphics.line(bx + 1, by - s + 1, bx + 1, by + s + 1)
-  love.graphics.setColor(0, 0, 0, 0.55)
-  -- Bright fill
-  love.graphics.setColor(0.98, 0.98, 0.92, 1)
-  -- Vertical stem
-  love.graphics.line(bx, by - s, bx, by + s)
-  -- Top loop (round bump on right)
-  love.graphics.arc("line", "open", bx + s * 0.55, by - s * 0.45,
-    s * 0.55, math.pi * 1.5, math.pi * 0.5)
-  -- Bottom loop
-  love.graphics.arc("line", "open", bx + s * 0.55, by + s * 0.45,
-    s * 0.55, math.pi * 1.5, math.pi * 0.5)
-  -- Two short verticals above and below
-  love.graphics.line(bx - s * 0.25, by - s - s * 0.30, bx - s * 0.25, by - s + s * 0.30)
-  love.graphics.line(bx + s * 0.25, by - s - s * 0.30, bx + s * 0.25, by - s + s * 0.30)
-  love.graphics.line(bx - s * 0.25, by + s - s * 0.30, bx - s * 0.25, by + s + s * 0.30)
-  love.graphics.line(bx + s * 0.25, by + s - s * 0.30, bx + s * 0.25, by + s + s * 0.30)
-  love.graphics.setLineWidth(1)
+  -- ₿ geometry. Stem on the left, two D-loops on the right.
+  local stemW   = size * 0.20
+  local stemH   = size * 1.04
+  local stemX   = sx - size * 0.36
+  local stemY   = sy - stemH * 0.5
+  local stemR   = stemX + stemW
+  local loopR   = size * 0.36
+  local loopInR = size * 0.18
+  local topLoopY = stemY + loopR
+  local botLoopY = stemY + stemH - loopR
 
-  -- Specular highlight
-  love.graphics.setColor(1, 1, 1, 0.30)
-  love.graphics.arc("fill", "open", sx - size * 0.30, sy - size * 0.30,
-                    size * 0.32, math.pi * 1.1, math.pi * 1.6)
+  -- Drop shadow (subtle, baked into the coin face)
+  love.graphics.setColor(0.32, 0.16, 0.04, 0.40)
+  love.graphics.rectangle("fill", stemX + size * 0.05, stemY + size * 0.05, stemW, stemH)
+  love.graphics.arc("fill", "pie",
+    stemR + size * 0.05, topLoopY + size * 0.05, loopR, -math.pi / 2, math.pi / 2)
+  love.graphics.arc("fill", "pie",
+    stemR + size * 0.05, botLoopY + size * 0.05, loopR, -math.pi / 2, math.pi / 2)
 
-  -- Sparkles
+  -- White ₿
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.rectangle("fill", stemX, stemY, stemW, stemH)
+  -- Top D-loop (white semicircle, flat side facing the stem)
+  love.graphics.arc("fill", "pie", stemR, topLoopY, loopR, -math.pi / 2, math.pi / 2)
+  -- Bottom D-loop
+  love.graphics.arc("fill", "pie", stemR, botLoopY, loopR, -math.pi / 2, math.pi / 2)
+
+  -- Orange ring-cutouts inside each loop so they read as rings, not pies.
+  -- This matches the Wikipedia Bitcoin logo where orange shows through.
+  love.graphics.setColor(hiR, hiG, hiB, 1)
+  love.graphics.arc("fill", "pie", stemR, topLoopY, loopInR, -math.pi / 2, math.pi / 2)
+  love.graphics.arc("fill", "pie", stemR, botLoopY, loopInR, -math.pi / 2, math.pi / 2)
+
+  -- White connecting bar between the two cutouts (so the cutouts are
+  -- separate "eyes" not one big slot — and so the stem reads connected
+  -- to both loops at the inner edge).
+  love.graphics.setColor(1, 1, 1, 1)
+  local connY = sy - size * 0.06
+  local connH = size * 0.12
+  love.graphics.rectangle("fill", stemX, connY, stemW + size * 0.02, connH)
+
+  -- Top + bottom serifs: two short vertical bars above the top of the
+  -- stem and two below the bottom. These align with the "left edges"
+  -- of where the inner cut-outs would be if extrapolated.
+  local serifH = size * 0.18
+  local serifW = stemW * 0.45
+  local serifL = stemX + stemW * 0.08
+  local serifR = stemX + stemW * 0.50
+  -- Top
+  love.graphics.rectangle("fill", serifL, stemY - serifH, serifW, serifH + size * 0.02)
+  love.graphics.rectangle("fill", serifR, stemY - serifH, serifW, serifH + size * 0.02)
+  -- Bottom
+  love.graphics.rectangle("fill", serifL, stemY + stemH - size * 0.02, serifW, serifH + size * 0.02)
+  love.graphics.rectangle("fill", serifR, stemY + stemH - size * 0.02, serifW, serifH + size * 0.02)
+
+  -- Specular highlight (top-left of disc)
+  love.graphics.setColor(1, 1, 1, 0.28)
+  love.graphics.arc("fill", "open", sx - size * 0.32, sy - size * 0.32,
+                    size * 0.34, math.pi * 1.1, math.pi * 1.6)
+
+  -- Orbital sparkles
   if size >= 8 then
     for k = 0, 3 do
       local a = (t * 1.2 + k / 4) * math.pi * 2
