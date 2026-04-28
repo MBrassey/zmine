@@ -1,6 +1,8 @@
 -- Thin LOVEWEB_NET wrapper. Mirrors the integration guide: emits
--- magic-print verbs and reads __loveweb__/{identity,net,slug,profiles}/*
--- snapshots written by the portal runtime.
+-- magic-print verbs and reads __loveweb__/{identity,net,slug}/*
+-- snapshots written by the portal runtime. Peer profiles land at
+-- __loveweb__/net/profiles/<userId>.json (canonical), with the legacy
+-- __loveweb__/profiles/<userId>.json still mirrored during transition.
 --
 -- This module is intentionally I/O-only: higher-level translation
 -- (peers, ticker text, surge handling) lives in src/network.lua.
@@ -115,8 +117,9 @@ function M.slugPresence(rankBy, limit)
   print(table.concat(parts, " "))
 end
 
--- Fetch a peer's public_profile.json. Result lands at
--- __loveweb__/profiles/<userId>.json.
+-- Fetch a peer's public_profile.json. Result lands at the canonical
+-- path __loveweb__/net/profiles/<userId>.json; the portal also mirrors
+-- to the legacy __loveweb__/profiles/<userId>.json during transition.
 function M.profile(userId)
   if not userId or userId == "" then return end
   print("[[LOVEWEB_NET]]profile " .. tostring(userId))
@@ -205,11 +208,14 @@ function M.poll(onEvent, onSlugEvent)
   end
 end
 
--- Read a previously-fetched peer profile from disk.
+-- Read a previously-fetched peer profile from disk. Prefer the new
+-- canonical path under net/profiles/; fall back to the legacy mirror
+-- so older portal builds (or in-flight transitions) still resolve.
 function M.readProfile(userId)
   if not userId or userId == "" then return nil end
   if M.profiles[userId] then return M.profiles[userId] end
-  local p = readJson("__loveweb__/profiles/" .. userId .. ".json")
+  local p = readJson("__loveweb__/net/profiles/" .. userId .. ".json")
+                or readJson("__loveweb__/profiles/" .. userId .. ".json")
   if p then M.profiles[userId] = p end
   return p
 end
